@@ -41,13 +41,12 @@ export function FacadeCanvas({
       if (!lineStart) {
         setLineStart({ x, y });
       } else {
-        // Dwing een kaarsrechte horizontale lijn af door de Y-coördinaat van het startpunt te gebruiken
         onAddSpot({
           type: 'line',
           x: Math.min(lineStart.x, x),
           y: lineStart.y,
           endX: Math.max(lineStart.x, x),
-          endY: lineStart.y, // Altijd kaarsrecht op dezelfde hoogte
+          endY: lineStart.y,
           product: 'knikarmscherm',
           frameColor: '#383E42',
           fabricColor: 'antraciet',
@@ -69,7 +68,6 @@ export function FacadeCanvas({
           className="object-contain max-h-[70vh] w-auto block pointer-events-none"
         />
 
-        {/* SVG voor het tekenen van kaarsrechte lijnen */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none">
           {lineStart && (
             <circle
@@ -100,7 +98,6 @@ export function FacadeCanvas({
           })}
         </svg>
 
-        {/* Punten renderen */}
         {spots.map((spot, index) => {
           if (spot.type === 'point') {
             const isActive = spot.id === activeId;
@@ -117,7 +114,7 @@ export function FacadeCanvas({
                     : 'bg-slate-900/80 border-slate-300 text-white hover:scale-105'
                 }`}
                 style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
-                title={`Locatie ${index + 1}: Klik om te bewerken`}
+                title={`Locatie ${index + 1}`}
               >
                 {index + 1}
               </div>
@@ -130,10 +127,10 @@ export function FacadeCanvas({
       <div className="flex items-center justify-between w-full px-2 text-xs text-muted-foreground">
         <span>
           {drawingMode === 'point' 
-            ? '💡 Klik op een raam om een punt (screen/rolluik) toe te voegen.' 
+            ? '💡 Klik op een raam om een punt toe te voegen.' 
             : lineStart 
-              ? '📍 Klik nu op het eindpunt om de breedte van het knikarmscherm vast te leggen (de lijn wordt automatisch recht getrokken).' 
-              : '📏 Klik op het linker- of rechterstartpunt van het knikarmscherm op de gevel.'}
+              ? '📍 Klik op het eindpunt van het knikarmscherm.' 
+              : '📏 Klik op het startpunt van het knikarmscherm op de gevel.'}
         </span>
         <span>{spots.length} locaties geselecteerd</span>
       </div>
