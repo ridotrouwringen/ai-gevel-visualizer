@@ -9,23 +9,18 @@ export type ColorOption = {
 
 export interface WindowSpot {
   id: string;
+  number: number;
   label: string;
-  x: number; // Percentage vanaf links
-  y: number; // Percentage vanaf boven
-  width?: number;
-  height?: number;
+  type: 'point' | 'line';
+  x: number; // Start X percentage
+  y: number; // Start Y percentage
+  endX?: number; // Eind X percentage (voor lijnen/knikarmschermen)
+  endY?: number; // Eind Y percentage (voor lijnen/knikarmschermen)
   product: ProductType;
-  frameColor: string; // hex of ral code
-  fabricColor?: string; // hex of naam
-}
-
-export interface ProductConfig {
-  type: ProductType;
   frameColor: string;
   fabricColor?: string;
 }
 
-// Standaardopties en constanten
 export const PRODUCTS = [
   { value: 'rolluik', label: 'Rolluik', description: 'Volledige afsluiting en isolatie' },
   { value: 'screen', label: 'Screen', description: 'Strak, windvast en doorzicht naar buiten' },
@@ -47,27 +42,32 @@ export const FABRIC_COLORS: ColorOption[] = [
   { id: 'oker-geel', name: 'Oker Geel', hex: '#C68A36' },
 ];
 
-export const DEFAULT_SPOTS: WindowSpot[] = [];
-
 export function productLabel(type: ProductType): string {
   const found = PRODUCTS.find((p) => p.value === type);
   return found ? found.label : type;
 }
 
-// Prompt generator voor Gemini Inpainting met perspectief- en diepte-instructie
 export function buildGeminiPrompt(targetSpots: WindowSpot[]): string {
-  const anchorsDescription = targetSpots
-    .map((s, i) => `Zone ${i + 1} ("${s.label}") op coördinaten (X: ${s.x}%, Y: ${s.y}%) voor een ${s.product} met kast/geleiders in ${s.frameColor}${s.fabricColor ? ` en doek in ${s.fabricColor}` : ''}`)
+  const elementsDescription = targetSpots
+    .map((s, i) => {
+      const positionDesc =
+        s.type === 'line' && s.endX !== undefined && s.endY !== undefined
+          ? `van horizontaal coördinaat (X: ${s.x}%, Y: ${s.y}%) tot (X: ${s.endX}%, Y: ${s.endY}%)`
+          : `op raam-coördinaat (X: ${s.x}%, Y: ${s.y}%)`;
+
+      return `Locatie ${i + 1}: ${productLabel(s.product)} ${positionDesc} met cassette/lijsten in ${s.frameColor}${s.fabricColor ? ` en doek in ${s.fabricColor}` : ''}`;
+    })
     .join('; ');
 
   return `
 Jij bent een specialistisch architectuur- en visuele inpainting-model voor zonwering.
-Je krijgt een foto van een achtergevel. De gebruiker heeft met ankerpunten de specifieke locaties aangegeven waar zonwering gemonteerd moet worden: [ ${anchorsDescription} ].
+Je krijgt een originele foto van een gevel. De gebruiker heeft nauwkeurig aangegeven waar zonwering gemonteerd moet worden: [ ${elementsDescription} ].
 
-STRIKTE INSTRUCTIES:
-1. **Behoud van de omgeving:** Houd het originele gebouw, de stenen, het metselwerk, de voeglijnen, het dak, deuren en de directe omgeving 100% identiek aan de originele foto. Verander niets aan de gevel zelf.
-2. **Diepte & Perspectief:** Analyseer de diepte en het perspectief van de gevel op basis van de foto. Pas de kaders en de hoek van de zonwering feilloos aan op het perspectief van elk geselecteerd raam/gebied op basis van de aangegeven ankerpunten.
-3. **Productspecificaties per zone:** Volg exact de gekozen producttypen en kleuren per geselecteerde zone.
-4. **Simultane montage:** Monteer de gekozen producten in één keer strak en realistisch op de aangegeven plekken. Zorg voor realistische schaduwval onder de bak/cassette en een natuurlijke integratie op de gevel.
+ABSOLUTE STRIKTE INSTRUCTIES VOOR FOTOREALISME & FORMAAT:
+1. **Identiek formaat en resolutie:** De output foto moet exact dezelfde hoogte, breedte, aspect ratio en resolutie hebben als de originele invoerfoto. Er mag geen enkele verandering, crop of schaling optreden in het totale canvas.
+2. **100% Identieke kloon van de omgeving:** Behoud de originele foto van het gebouw, de stenen, het metselwerk, de voegen, het dak, deuren, ramen en de directe omgeving pixel-voor-pixel identiek. Verander niets aan de gevel zelf.
+3. **Voorgrond & Objecten (Diepte-laag):** Als er objecten zoals struiken, bomen, planten, regenpijpen, tuinmeubelen of auto's op de voorgrond staan die (gedeeltelijk) voor de gevel of het raam vallen, **moeten deze exact op de voorgrond blijven**. De zonwering moet natuurgetrouw *achter* of *tussen* deze voorgrond-elementen worden geplaatst, alsof het er in de echte wereld gemonteerd is. Geen enkele tak of struik mag zomaar worden weggesneden.
+4. **Diepte, Perspectief & Schaduw:** Analyseer de lichtval, de diepte en het perspectief van de gevel op de originele foto. Pas de hoek, de cassette en de uitval van elk product feilloos aan op basis van de opgegeven punten of rechte lijnen. Voeg realistische subtiele schaduwval toe onder de bakken en schermen voor een maximaal fotorealistisch resultaat.
+5. **Simultane en-en montage:** Monteer alle gekozen producten (screens, rolluiken én knikarmschermen tegelijk) strak en feilloos op de aangegeven locaties.
 `;
 }

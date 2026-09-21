@@ -1,81 +1,142 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { WindowSpot } from '@/lib/visualizer';
 
 interface FacadeCanvasProps {
   src: string;
   spots: WindowSpot[];
-  selectedIds: string[];
-  onToggle: (id: string) => void;
-  onSelectAll: () => void;
-  onDeselectAll: () => void;
+  activeId: string | null;
+  drawingMode: 'point' | 'line';
+  onAddSpot: (spot: Omit<WindowSpot, 'id' | 'number' | 'label'>) => void;
+  onSelectSpot: (id: string) => void;
+  onRemoveSpot: (id: string) => void;
 }
 
 export function FacadeCanvas({
   src,
   spots,
-  selectedIds,
-  onToggle,
-  onSelectAll,
-  onDeselectAll,
+  activeId,
+  drawingMode,
+  onAddSpot,
+  onSelectSpot,
 }: FacadeCanvasProps) {
+  const [lineStart, setLineStart] = useState<{ x: number; y: number } | null>(null);
+
+  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+    const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+
+    if (drawingMode === 'point') {
+      onAddSpot({
+        type: 'point',
+        x,
+        y,
+        product: 'screen',
+        frameColor: '#383E42',
+        fabricColor: 'antraciet',
+      });
+    } else {
+      if (!lineStart) {
+        setLineStart({ x, y });
+      } else {
+        // Dwing een kaarsrechte horizontale lijn af door de Y-coördinaat van het startpunt te gebruiken
+        onAddSpot({
+          type: 'line',
+          x: Math.min(lineStart.x, x),
+          y: lineStart.y,
+          endX: Math.max(lineStart.x, x),
+          endY: lineStart.y, // Altijd kaarsrecht op dezelfde hoogte
+          product: 'knikarmscherm',
+          frameColor: '#383E42',
+          fabricColor: 'antraciet',
+        });
+        setLineStart(null);
+      }
+    }
+  };
+
   return (
     <div className="flex flex-col items-center gap-4 w-full">
-      {spots.length > 0 && (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onSelectAll}
-            className="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 rounded-md transition cursor-pointer"
-          >
-            Selecteer alles
-          </button>
-          <button
-            type="button"
-            onClick={onDeselectAll}
-            className="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 rounded-md transition cursor-pointer"
-          >
-            Wis selectie
-          </button>
-        </div>
-      )}
-
-      <div className="relative inline-block max-w-full shadow-lg rounded-lg overflow-hidden border border-slate-200 bg-black/5">
+      <div 
+        className="relative inline-block max-w-full shadow-lg rounded-lg overflow-hidden border border-slate-200 bg-black/5 cursor-crosshair select-none"
+        onClick={handleImageClick}
+      >
         <img
           src={src}
           alt="Gevel"
-          className="object-contain max-h-[70vh] w-auto block select-none"
+          className="object-contain max-h-[70vh] w-auto block pointer-events-none"
         />
 
-        {spots.map((spot) => {
-          const isSelected = selectedIds.includes(spot.id);
-          return (
-            <div
-              key={spot.id}
-              onClick={() => onToggle(spot.id)}
-              className={`absolute -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg border-2 flex items-center gap-2 text-xs font-bold transition-all shadow-md cursor-pointer ${
-                isSelected
-                  ? 'bg-blue-600/90 border-white text-white scale-100'
-                  : 'bg-slate-800/70 border-slate-400 text-slate-300 scale-95'
-              }`}
-              style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
-              title={`Klik om ${spot.label} aan/uit te zetten`}
-            >
-              <span>{spot.label}</span>
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => {}}
-                className="pointer-events-none h-3.5 w-3.5 rounded border-white text-blue-600 focus:ring-0"
-              />
-            </div>
-          );
+        {/* SVG voor het tekenen van kaarsrechte lijnen */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none">
+          {lineStart && (
+            <circle
+              cx={`${lineStart.x}%`}
+              cy={`${lineStart.y}%`}
+              r="6"
+              className="fill-blue-500 stroke-white stroke-2 animate-pulse"
+            />
+          )}
+          {spots.map((spot) => {
+            if (spot.type === 'line' && spot.endX !== undefined && spot.endY !== undefined) {
+              const isActive = spot.id === activeId;
+              return (
+                <g key={spot.id}>
+                  <line
+                    x1={`${spot.x}%`}
+                    y1={`${spot.y}%`}
+                    x2={`${spot.endX}%`}
+                    y2={`${spot.endY}%`}
+                    className={isActive ? 'stroke-blue-600 stroke-[4]' : 'stroke-slate-900/80 stroke-[3]'}
+                  />
+                  <circle cx={`${spot.x}%`} cy={`${spot.y}%`} r="5" className="fill-blue-600 stroke-white stroke-2" />
+                  <circle cx={`${spot.endX}%`} cy={`${spot.endY}%`} r="5" className="fill-blue-600 stroke-white stroke-2" />
+                </g>
+              );
+            }
+            return null;
+          })}
+        </svg>
+
+        {/* Punten renderen */}
+        {spots.map((spot, index) => {
+          if (spot.type === 'point') {
+            const isActive = spot.id === activeId;
+            return (
+              <div
+                key={spot.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectSpot(spot.id);
+                }}
+                className={`absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all shadow-md cursor-pointer ${
+                  isActive
+                    ? 'bg-blue-600 border-white text-white scale-110 ring-4 ring-blue-400/30'
+                    : 'bg-slate-900/80 border-slate-300 text-white hover:scale-105'
+                }`}
+                style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
+                title={`Locatie ${index + 1}: Klik om te bewerken`}
+              >
+                {index + 1}
+              </div>
+            );
+          }
+          return null;
         })}
       </div>
-      <p className="text-xs text-muted-foreground text-center">
-        Klik op een raamlabel op de foto om deze te selecteren of te deselecteren voor de AI-montage.
-      </p>
+
+      <div className="flex items-center justify-between w-full px-2 text-xs text-muted-foreground">
+        <span>
+          {drawingMode === 'point' 
+            ? '💡 Klik op een raam om een punt (screen/rolluik) toe te voegen.' 
+            : lineStart 
+              ? '📍 Klik nu op het eindpunt om de breedte van het knikarmscherm vast te leggen (de lijn wordt automatisch recht getrokken).' 
+              : '📏 Klik op het linker- of rechterstartpunt van het knikarmscherm op de gevel.'}
+        </span>
+        <span>{spots.length} locaties geselecteerd</span>
+      </div>
     </div>
   );
 }
