@@ -11,7 +11,7 @@ import { ConfigPanel } from "@/components/config-panel"
 import { GeneratingStatus } from "@/components/generating-status"
 import { BeforeAfterSlider } from "@/components/before-after-slider"
 import { LeadForm } from "@/components/lead-form"
-import { DEFAULT_SPOTS, productLabel, type WindowSpot } from "@/lib/visualizer"
+import { DEFAULT_SPOTS, buildGeminiPrompt, productLabel, type WindowSpot } from "@/lib/visualizer"
 
 type Stage = "upload" | "configure" | "generating" | "result"
 
@@ -19,28 +19,75 @@ export function Visualizer() {
   const [stage, setStage] = useState<Stage>("upload")
   const [image, setImage] = useState<string | null>(null)
   const [spots, setSpots] = useState<WindowSpot[]>(DEFAULT_SPOTS)
-  const [activeId, setActiveId] = useState<string | null>(DEFAULT_SPOTS[0].id)
-  const [applyToAll, setApplyToAll] = useState(false)
+  
+  // Multi-selectie van geselecteerde raam-ID's (standaard alle ramen geselecteerd)
+  const [selectedIds, setSelectedIds] = useState<string[]>(DEFAULT_SPOTS.map((s) => s.id))
+  // Het actieve raam dat momenteel in de ConfigPanel wordt ingesteld
+  const [activeId, setActiveId] = useState<string | null>(DEFAULT_SPOTS[0]?.id ?? null)
+  const [applyToAll, setApplyToAll] = useState(true)
 
-  const activeSpot = useMemo(() => spots.find((s) => s.id === activeId) ?? null, [spots, activeId])
+  const activeSpot = useMemo(() => spots.find((s) => s.id === activeId) ?? spots[0] ?? null, [spots, activeId])
 
   function handleUpload(dataUrl: string) {
     setImage(dataUrl)
     setSpots(DEFAULT_SPOTS)
-    setActiveId(DEFAULT_SPOTS[0].id)
+    const initialIds = DEFAULT_SPOTS.map((s) => s.id)
+    setSelectedIds(initialIds)
+    setActiveId(initialIds[0] ?? null)
     setStage("configure")
   }
 
+  // Raam aan-/uitvinken
+  function handleToggleWindow(id: string) {
+    setSelectedIds((prev) => {
+      const isSelected = prev.includes(id)
+      const updated = isSelected ? prev.filter((item) => item !== id) : [...prev, id]
+      
+      // Indien het actieve raam werd uitgevinkt, kies het eerstvolgende actieve raam
+      if (isSelected && activeId === id) {
+        setActiveId(updated[0] ?? null)
+      } else if (!isSelected) {
+        setActiveId(id)
+      }
+      
+      return updated
+    })
+  }
+
+  // Alles selecteren
+  function handleSelectAll() {
+    const allIds = spots.map((s) => s.id)
+    setSelectedIds(allIds)
+    if (!activeId && allIds.length > 0) {
+      setActiveId(allIds[0])
+    }
+  }
+
+  // Wis selectie
+  function handleDeselectAll() {
+    setSelectedIds([])
+  }
+
+  // Eigenschappen van producten/kleuren bijwerken op geselecteerde ramen
   function handleUpdate(patch: Partial<WindowSpot>) {
     setSpots((prev) =>
       prev.map((s) => {
-        if (applyToAll) return { ...s, ...patch }
+        if (applyToAll || selectedIds.includes(s.id)) {
+          return { ...s, ...patch }
+        }
         return s.id === activeId ? { ...s, ...patch } : s
       }),
     )
   }
 
   function handleGenerate() {
+    // Filter alleen de daadwerkelijk geselecteerde ramen voor de AI
+    const targetSpots = spots.filter((s) => selectedIds.includes(s.id))
+    
+    // Strikte prompt opbouwen voor Gemini inpainting
+    const prompt = buildGeminiPrompt(targetSpots)
+    console.log("Genereren met Gemini Prompt:\n", prompt)
+
     setStage("generating")
     setTimeout(() => setStage("result"), 4600)
   }
@@ -49,8 +96,9 @@ export function Visualizer() {
     setStage("upload")
     setImage(null)
     setSpots(DEFAULT_SPOTS)
-    setActiveId(DEFAULT_SPOTS[0].id)
-    setApplyToAll(false)
+    setSelectedIds(DEFAULT_SPOTS.map((s) => s.id))
+    setActiveId(DEFAULT_SPOTS[0]?.id ?? null)
+    setApplyToAll(true)
   }
 
   return (
@@ -65,8 +113,7 @@ export function Visualizer() {
           Zie je zonwering vóór je koopt
         </h1>
         <p className="mt-3 text-pretty text-base text-muted-foreground">
-          Upload een foto van je gevel, kies je product en kleuren, en ontvang een realistische visualisatie met
-          richtprijs.
+          Upload een foto van je gevel, kies je product en kleuren, en ontvang een realistische visualisatie met richtprijs.
         </p>
       </div>
 
@@ -75,14 +122,21 @@ export function Visualizer() {
       {(stage === "configure" || stage === "generating") && image && (
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
           <div className="space-y-4">
-            <FacadeCanvas src={image} spots={spots} activeId={activeId} onSelect={setActiveId} />
+            <FacadeCanvas
+              src={image}
+              spots={spots}
+              selectedIds={selectedIds}
+              onToggle={handleToggleWindow}
+              onSelectAll={handleSelectAll}
+              onDeselectAll={handleDeselectAll}
+            />
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <Button variant="ghost" size="sm" onClick={handleReset} className="gap-2 text-muted-foreground">
+              <Button variant="ghost" size="sm" onClick={handleReset} className="gap-2 text-muted-foreground cursor-pointer">
                 <RotateCcw className="h-4 w-4" aria-hidden="true" />
                 Andere foto
               </Button>
               <p className="text-xs text-muted-foreground">
-                {spots.length} zones gedetecteerd &middot; {spots.filter((s) => s.product).length} geconfigureerd
+                {spots.length} zones gedetecteerd &middot; {selectedIds.length} geselecteerd voor AI-montage
               </p>
             </div>
 
@@ -104,11 +158,13 @@ export function Visualizer() {
               <Button
                 size="lg"
                 onClick={handleGenerate}
-                disabled={stage === "generating"}
-                className="mt-6 w-full gap-2 bg-brand text-brand-foreground hover:bg-brand/90"
+                disabled={stage === "generating" || selectedIds.length === 0}
+                className="mt-6 w-full gap-2 bg-brand text-brand-foreground hover:bg-brand/90 disabled:opacity-50 cursor-pointer"
               >
                 <Wand2 className="h-4.5 w-4.5" aria-hidden="true" />
-                Genereer Visualisatie
+                {selectedIds.length === 0
+                  ? "Selecteer minimaal 1 raam"
+                  : `Genereer Visualisatie (${selectedIds.length} ${selectedIds.length === 1 ? "raam" : "ramen"})`}
               </Button>
             </Card>
           </div>
@@ -123,26 +179,28 @@ export function Visualizer() {
                 <h2 className="text-2xl font-semibold tracking-tight text-foreground">Jouw visualisatie is klaar</h2>
                 <p className="text-sm text-muted-foreground">Sleep de slider om voor en na te vergelijken.</p>
               </div>
-              <Button variant="outline" size="sm" onClick={handleReset} className="gap-2 bg-transparent">
+              <Button variant="outline" size="sm" onClick={handleReset} className="gap-2 bg-transparent cursor-pointer">
                 <RotateCcw className="h-4 w-4" aria-hidden="true" />
                 Opnieuw beginnen
               </Button>
             </div>
             <BeforeAfterSlider beforeSrc={image} afterSrc="/facade-after.png" />
             <div className="flex flex-wrap gap-2">
-              {spots.map((spot) => (
-                <span
-                  key={spot.id}
-                  className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground"
-                >
+              {spots
+                .filter((spot) => selectedIds.includes(spot.id))
+                .map((spot) => (
                   <span
-                    className="h-3 w-3 rounded-full border border-black/10"
-                    style={{ backgroundColor: spot.frameColor }}
-                    aria-hidden="true"
-                  />
-                  {spot.label}: {productLabel(spot.product)}
-                </span>
-              ))}
+                    key={spot.id}
+                    className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground"
+                  >
+                    <span
+                      className="h-3 w-3 rounded-full border border-black/10"
+                      style={{ backgroundColor: spot.frameColor }}
+                      aria-hidden="true"
+                    />
+                    {spot.label}: {productLabel(spot.product)}
+                  </span>
+                ))}
             </div>
           </div>
 
