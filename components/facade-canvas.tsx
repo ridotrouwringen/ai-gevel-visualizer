@@ -1,126 +1,120 @@
-"use client"
+'use client';
 
-import { cn } from "@/lib/utils"
-import type { WindowSpot } from "@/lib/visualizer"
-import { CheckSquare, Square, CheckCircle2, Circle } from "lucide-react"
+import React, { useState } from 'react';
 
-type FacadeCanvasProps = {
-  src: string
-  spots: WindowSpot[]
-  selectedIds: string[]
-  onToggle: (id: string) => void
-  onSelectAll: () => void
-  onDeselectAll: () => void
+export interface WindowAnchor {
+  id: string;
+  x: number; // Percentage vanaf links (0-100)
+  y: number; // Percentage vanaf boven (0-100)
+  selected: boolean;
 }
 
-export function FacadeCanvas({
-  src,
-  spots,
-  selectedIds = [],
-  onToggle,
-  onSelectAll,
-  onDeselectAll,
-}: FacadeCanvasProps) {
-  const allSelected = spots.length > 0 && selectedIds.length === spots.length
-  const someSelected = selectedIds.length > 0
+interface FacadeCanvasProps {
+  imageSrc: string;
+  onWindowsChange: (windows: WindowAnchor[]) => void;
+}
+
+export function FacadeCanvas({ imageSrc, onWindowsChange }: FacadeCanvasProps) {
+  const [windows, setWindows] = useState<WindowAnchor[]>([]);
+
+  // Vang de klik op en bereken de exacte relatieve positie (percentages) op de foto
+  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    const xPercent = (clickX / rect.width) * 100;
+    const yPercent = (clickY / rect.height) * 100;
+
+    const newWindow: WindowAnchor = {
+      id: `raam-${windows.length + 1}`,
+      x: Math.round(xPercent * 100) / 100,
+      y: Math.round(yPercent * 100) / 100,
+      selected: true,
+    };
+
+    const updated = [...windows, newWindow];
+    setWindows(updated);
+    onWindowsChange(updated);
+  };
+
+  const toggleSelect = (id: string) => {
+    const updated = windows.map((w) => (w.id === id ? { ...w, selected: !w.selected } : w));
+    setWindows(updated);
+    onWindowsChange(updated);
+  };
+
+  const selectAll = (status: boolean) => {
+    const updated = windows.map((w) => ({ ...w, selected: status }));
+    setWindows(updated);
+    onWindowsChange(updated);
+  };
+
+  const removeWindow = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = windows.filter((w) => w.id !== id);
+    setWindows(updated);
+    onWindowsChange(updated);
+  };
 
   return (
-    <div className="flex w-full flex-col gap-3">
-      {/* Actiebalk met snel-selectie knoppen */}
-      {spots.length > 0 && (
-        <div className="flex items-center justify-between rounded-xl border border-border bg-muted/60 p-2.5 text-xs font-medium">
-          <span className="text-muted-foreground">
-            <strong className="text-foreground">{spots.length}</strong> {spots.length === 1 ? "raam" : "ramen"} gedetecteerd 
-            ({selectedIds.length} geselecteerd)
-          </span>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onSelectAll}
-              disabled={allSelected}
-              className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-semibold text-foreground shadow-sm transition hover:bg-accent disabled:opacity-50 cursor-pointer"
-            >
-              <CheckSquare className="h-3.5 w-3.5 text-primary" />
-              Selecteer alles
-            </button>
-            <button
-              type="button"
-              onClick={onDeselectAll}
-              disabled={!someSelected}
-              className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 font-semibold text-foreground shadow-sm transition hover:bg-accent disabled:opacity-50 cursor-pointer"
-            >
-              <Square className="h-3.5 w-3.5 text-muted-foreground" />
-              Wis selectie
-            </button>
-          </div>
+    <div className="flex flex-col items-center gap-4 w-full">
+      {/* Snelknoppen voor multi-selectie */}
+      {windows.length > 0 && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => selectAll(true)}
+            className="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 rounded-md transition"
+          >
+            Selecteer alles
+          </button>
+          <button
+            onClick={() => selectAll(false)}
+            className="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 rounded-md transition"
+          >
+            Wis selectie
+          </button>
         </div>
       )}
 
-      {/* Gevel Canvas Container */}
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-border bg-muted flex items-center justify-center">
-        {/* 1. Aangepast naar object-contain voor perfecte schaling */}
-        <img 
-          src={src || "/placeholder.svg"} 
-          alt="Geüploade gevel" 
-          className="h-full w-full object-contain pointer-events-none select-none" 
+      {/* Canvas / Afbeelding container */}
+      <div className="relative inline-block max-w-full shadow-lg rounded-lg overflow-hidden border border-slate-200">
+        <img
+          src={imageSrc}
+          alt="Gevel"
+          onClick={handleImageClick}
+          className="object-contain max-h-[70vh] w-auto cursor-crosshair block"
         />
 
-        {/* Dynamic Badges & Kaders */}
-        <div className="pointer-events-auto absolute inset-0">
-          {spots.map((spot, i) => {
-            const isSelected = selectedIds.includes(spot.id)
-            const hasBounds = spot.width !== undefined && spot.height !== undefined
-
-            return (
-              <div
-                key={spot.id}
-                style={{
-                  left: `${spot.x}%`,
-                  top: `${spot.y}%`,
-                  ...(hasBounds ? { width: `${spot.width}%`, height: `${spot.height}%` } : {}),
-                }}
-                onClick={() => onToggle(spot.id)}
-                className={cn(
-                  "absolute transition-all cursor-pointer",
-                  hasBounds 
-                    ? cn("border-2 rounded-md", isSelected ? "border-primary bg-primary/20 shadow-md" : "border-amber-400/80 bg-amber-400/10 hover:border-amber-400")
-                    : "-translate-x-1/2 -translate-y-1/2"
-                )}
-              >
-                {/* 2. Badge verankerd met vinkje */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onToggle(spot.id)
-                  }}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold shadow-lg backdrop-blur-sm transition-all whitespace-nowrap cursor-pointer",
-                    hasBounds ? "absolute -bottom-8 left-1/2 -translate-x-1/2" : "",
-                    isSelected
-                      ? "scale-105 border-primary bg-primary text-primary-foreground ring-2 ring-primary/30"
-                      : "border-white/70 bg-background/90 text-foreground hover:border-primary/60"
-                  )}
-                  aria-label={`Selecteer ${spot.label || `Raam ${i + 1}`}`}
-                  aria-pressed={isSelected}
-                >
-                  {isSelected ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-primary-foreground" />
-                  ) : (
-                    <Circle className="h-3.5 w-3.5 text-muted-foreground" />
-                  )}
-                  <span>{spot.label || `Raam ${i + 1}`}</span>
-                </button>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-background/85 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur-sm">
-          Klik op de ramen om een of meerdere te selecteren
-        </div>
+        {/* Visuele markers op de geklikte ankerpunten */}
+        {windows.map((win, index) => (
+          <div
+            key={win.id}
+            className={`absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all shadow-md ${
+              win.selected
+                ? 'bg-blue-600/80 border-white text-white scale-100'
+                : 'bg-slate-500/60 border-slate-300 text-slate-200 scale-90'
+            }`}
+            style={{ left: `${win.x}%`, top: `${win.y}%` }}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSelect(win.id);
+            }}
+            title={`Raam ${index + 1} (Klik om aan/uit te zetten)`}
+          >
+            {index + 1}
+            <button
+              onClick={(e) => removeWindow(win.id, e)}
+              className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-4 h-4 text-[10px] flex items-center justify-center hover:bg-red-700"
+            >
+              ×
+            </button>
+          </div>
+        ))}
       </div>
+      <p className="text-xs text-slate-500">
+        Klik op de gevel om een raam aan te wijzen. Klik op het cirkeltje om de selectie te toggelen of te verwijderen.
+      </p>
     </div>
-  )
+  );
 }
