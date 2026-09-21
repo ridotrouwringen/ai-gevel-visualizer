@@ -13,7 +13,7 @@ export function buildVisualizationPrompt(
   // Filter alleen de aangevinkte ramen
   const activeWindows = windows.filter((w) => w.selected);
   const anchorsDescription = activeWindows
-    .map((w, i) => `Raam ${i + 1} bevindt zich op relatieve coördinaten (X: ${w}%, Y: ${w}%)`)
+    .map((w, i) => `Raam ${i + 1} bevindt zich op relatieve coördinaten (X: ${w.x}%, Y: ${w.y}%)`)
     .join('; ');
 
   return `
