@@ -1,32 +1,82 @@
-import { WindowAnchor } from '@/components/facade-canvas';
+'use client';
 
-export interface ProductConfig {
-  type: 'rolluik' | 'screen' | 'knikarmscherm';
-  frameColor: string; // bijv. "RAL 7016", "RAL 9010", "RAL 9001"
-  fabricColor?: string; // bijv. "antraciet", "zand", "licht grijs", "oker geel"
+import React from 'react';
+import { WindowSpot } from '@/lib/visualizer';
+
+interface FacadeCanvasProps {
+  src: string;
+  spots: WindowSpot[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
 }
 
-export function buildVisualizationPrompt(
-  windows: WindowAnchor[],
-  config: ProductConfig
-): string {
-  // Filter alleen de aangevinkte ramen
-  const activeWindows = windows.filter((w) => w.selected);
-  const anchorsDescription = activeWindows
-    .map((w, i) => `Raam ${i + 1} bevindt zich op relatieve coördinaten (X: ${w.x}%, Y: ${w.y}%)`)
-    .join('; ');
+export function FacadeCanvas({
+  src,
+  spots,
+  selectedIds,
+  onToggle,
+  onSelectAll,
+  onDeselectAll,
+}: FacadeCanvasProps) {
+  // We voegen hier optioneel een klik-handler toe om direct nieuwe ankerpunten toe te voegen als de lijst leeg is of via de canvas
+  return (
+    <div className="flex flex-col items-center gap-4 w-full">
+      {spots.length > 0 && (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onSelectAll}
+            className="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 rounded-md transition cursor-pointer"
+          >
+            Selecteer alles
+          </button>
+          <button
+            type="button"
+            onClick={onDeselectAll}
+            className="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 rounded-md transition cursor-pointer"
+          >
+            Wis selectie
+          </button>
+        </div>
+      )}
 
-  return `
-Jij bent een specialistisch architectuur- en visuele inpainting-model voor zonwering.
-Je krijgt een foto van een achtergevel. De gebruiker heeft met ankerpunten de specifieke ramen aangegeven waar zonwering gemonteerd moet worden: [ ${anchorsDescription} ].
+      <div className="relative inline-block max-w-full shadow-lg rounded-lg overflow-hidden border border-slate-200 bg-black/5">
+        <img
+          src={src}
+          alt="Gevel"
+          className="object-contain max-h-[70vh] w-auto block select-none"
+        />
 
-STRIKTE INSTRUCTIES:
-1. **Behoud van de omgeving:** Houd het originele gebouw, de stenen, het metselwerk, de voeglijnen, het dak, deuren en de directe omgeving 100% identiek aan de originele foto. Verander niets aan de gevel zelf.
-2. **Diepte & Perspectief:** Analyseer de diepte en het perspectief van de gevel op basis van de foto. Pas de kaders en de hoek van de zonwering feilloos aan op het perspectief van elk geselecteerd raam.
-3. **Productspecificatie:**
-   - Type product: ${config.type.toUpperCase()}
-   - Kleur cassette/kast en geleiders: ${config.frameColor}
-   ${config.fabricColor ? `- Kleur doek: ${config.fabricColor}` : ''}
-4. **Simultane montage:** Monteer het gekozen product in één keer strak en realistisch over de aangegeven ramen heen. Zorg voor realistische schaduwval onder de bak/cassette en een natuurlijke integratie op het kozijn.
-`;
+        {spots.map((spot, index) => {
+          const isSelected = selectedIds.includes(spot.id);
+          return (
+            <div
+              key={spot.id}
+              onClick={() => onToggle(spot.id)}
+              className={`absolute -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg border-2 flex items-center gap-2 text-xs font-bold transition-all shadow-md cursor-pointer ${
+                isSelected
+                  ? 'bg-blue-600/90 border-white text-white scale-100'
+                  : 'bg-slate-800/70 border-slate-400 text-slate-300 scale-95'
+              }`}
+              style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
+              title={`Klik om ${spot.label} aan/uit te zetten`}
+            >
+              <span>{spot.label}</span>
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => {}} // Wordt afgehandeld door de parent div onClick
+                className="pointer-events-none h-3.5 w-3.5 rounded border-white text-blue-600 focus:ring-0"
+              />
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground text-center">
+        Klik op een raamlabel op de foto om deze te selecteren of te deselecteren voor de AI-montage.
+      </p>
+    </div>
+  );
 }
