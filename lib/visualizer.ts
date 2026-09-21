@@ -1,82 +1,73 @@
-'use client';
+export type ProductType = 'rolluik' | 'screen' | 'knikarmscherm';
 
-import React from 'react';
-import { WindowSpot } from '@/lib/visualizer';
+export type ColorOption = {
+  id: string;
+  name: string;
+  hex: string;
+  ral?: string;
+};
 
-interface FacadeCanvasProps {
-  src: string;
-  spots: WindowSpot[];
-  selectedIds: string[];
-  onToggle: (id: string) => void;
-  onSelectAll: () => void;
-  onDeselectAll: () => void;
+export interface WindowSpot {
+  id: string;
+  label: string;
+  x: number; // Percentage vanaf links
+  y: number; // Percentage vanaf boven
+  width?: number;
+  height?: number;
+  product: ProductType;
+  frameColor: string; // hex of ral code
+  fabricColor?: string; // hex of naam
 }
 
-export function FacadeCanvas({
-  src,
-  spots,
-  selectedIds,
-  onToggle,
-  onSelectAll,
-  onDeselectAll,
-}: FacadeCanvasProps) {
-  // We voegen hier optioneel een klik-handler toe om direct nieuwe ankerpunten toe te voegen als de lijst leeg is of via de canvas
-  return (
-    <div className="flex flex-col items-center gap-4 w-full">
-      {spots.length > 0 && (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onSelectAll}
-            className="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 rounded-md transition cursor-pointer"
-          >
-            Selecteer alles
-          </button>
-          <button
-            type="button"
-            onClick={onDeselectAll}
-            className="px-3 py-1.5 text-xs font-medium bg-slate-200 hover:bg-slate-300 rounded-md transition cursor-pointer"
-          >
-            Wis selectie
-          </button>
-        </div>
-      )}
+export interface ProductConfig {
+  type: ProductType;
+  frameColor: string;
+  fabricColor?: string;
+}
 
-      <div className="relative inline-block max-w-full shadow-lg rounded-lg overflow-hidden border border-slate-200 bg-black/5">
-        <img
-          src={src}
-          alt="Gevel"
-          className="object-contain max-h-[70vh] w-auto block select-none"
-        />
+// Standaardopties en constanten
+export const PRODUCTS = [
+  { value: 'rolluik', label: 'Rolluik', description: 'Volledige afsluiting en isolatie' },
+  { value: 'screen', label: 'Screen', description: 'Strak, windvast en doorzicht naar buiten' },
+  { value: 'knikarmscherm', label: 'Knikarmscherm', description: 'Terraszonwering met uitval' },
+] as const;
 
-        {spots.map((spot, index) => {
-          const isSelected = selectedIds.includes(spot.id);
-          return (
-            <div
-              key={spot.id}
-              onClick={() => onToggle(spot.id)}
-              className={`absolute -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg border-2 flex items-center gap-2 text-xs font-bold transition-all shadow-md cursor-pointer ${
-                isSelected
-                  ? 'bg-blue-600/90 border-white text-white scale-100'
-                  : 'bg-slate-800/70 border-slate-400 text-slate-300 scale-95'
-              }`}
-              style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
-              title={`Klik om ${spot.label} aan/uit te zetten`}
-            >
-              <span>{spot.label}</span>
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => {}} // Wordt afgehandeld door de parent div onClick
-                className="pointer-events-none h-3.5 w-3.5 rounded border-white text-blue-600 focus:ring-0"
-              />
-            </div>
-          );
-        })}
-      </div>
-      <p className="text-xs text-muted-foreground text-center">
-        Klik op een raamlabel op de foto om deze te selecteren of te deselecteren voor de AI-montage.
-      </p>
-    </div>
-  );
+export const FRAME_COLORS: ColorOption[] = [
+  { id: 'ral-7016', name: 'Antracietgrijs', hex: '#383E42', ral: 'RAL 7016' },
+  { id: 'ral-9010', name: 'Zuiver wit', hex: '#F1F3F2', ral: 'RAL 9010' },
+  { id: 'ral-9001', name: 'Crèmewit', hex: '#F0EEE9', ral: 'RAL 9001' },
+];
+
+export const FABRIC_COLORS: ColorOption[] = [
+  { id: 'antraciet', name: 'Antraciet', hex: '#2B2D2F' },
+  { id: 'grijs-zwart', name: 'Grijs Zwart', hex: '#1C1E21' },
+  { id: 'zwart', name: 'Zwart', hex: '#111111' },
+  { id: 'zand', name: 'Zand', hex: '#C2B29B' },
+  { id: 'licht-grijs', name: 'Licht Grijs', hex: '#D0D3D4' },
+  { id: 'oker-geel', name: 'Oker Geel', hex: '#C68A36' },
+];
+
+export const DEFAULT_SPOTS: WindowSpot[] = [];
+
+export function productLabel(type: ProductType): string {
+  const found = PRODUCTS.find((p) => p.value === type);
+  return found ? found.label : type;
+}
+
+// Prompt generator voor Gemini Inpainting met perspectief- en diepte-instructie
+export function buildGeminiPrompt(targetSpots: WindowSpot[]): string {
+  const anchorsDescription = targetSpots
+    .map((s, i) => `Zone ${i + 1} ("${s.label}") op coördinaten (X: ${s.x}%, Y: ${s.y}%) voor een ${s.product} met kast/geleiders in ${s.frameColor}${s.fabricColor ? ` en doek in ${s.fabricColor}` : ''}`)
+    .join('; ');
+
+  return `
+Jij bent een specialistisch architectuur- en visuele inpainting-model voor zonwering.
+Je krijgt een foto van een achtergevel. De gebruiker heeft met ankerpunten de specifieke locaties aangegeven waar zonwering gemonteerd moet worden: [ ${anchorsDescription} ].
+
+STRIKTE INSTRUCTIES:
+1. **Behoud van de omgeving:** Houd het originele gebouw, de stenen, het metselwerk, de voeglijnen, het dak, deuren en de directe omgeving 100% identiek aan de originele foto. Verander niets aan de gevel zelf.
+2. **Diepte & Perspectief:** Analyseer de diepte en het perspectief van de gevel op basis van de foto. Pas de kaders en de hoek van de zonwering feilloos aan op het perspectief van elk geselecteerd raam/gebied op basis van de aangegeven ankerpunten.
+3. **Productspecificaties per zone:** Volg exact de gekozen producttypen en kleuren per geselecteerde zone.
+4. **Simultane montage:** Monteer de gekozen producten in één keer strak en realistisch op de aangegeven plekken. Zorg voor realistische schaduwval onder de bak/cassette en een natuurlijke integratie op de gevel.
+`;
 }

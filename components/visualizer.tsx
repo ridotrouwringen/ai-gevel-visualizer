@@ -1,4 +1,4 @@
-"use client"
+'use client'
 
 import { useMemo, useState } from "react"
 import { RotateCcw, Sparkles, Wand2 } from "lucide-react"
@@ -11,7 +11,7 @@ import { ConfigPanel } from "@/components/config-panel"
 import { GeneratingStatus } from "@/components/generating-status"
 import { BeforeAfterSlider } from "@/components/before-after-slider"
 import { LeadForm } from "@/components/lead-form"
-import { DEFAULT_SPOTS, buildGeminiPrompt, productLabel, type WindowSpot } from "@/lib/visualizer"
+import { DEFAULT_SPOTS, productLabel, type WindowSpot } from "@/lib/visualizer"
 
 type Stage = "upload" | "configure" | "generating" | "result"
 
@@ -20,11 +20,9 @@ export function Visualizer() {
   const [image, setImage] = useState<string | null>(null)
   const [spots, setSpots] = useState<WindowSpot[]>(DEFAULT_SPOTS)
   
-  // Multi-selectie van geselecteerde raam-ID's (standaard alle ramen geselecteerd)
   const [selectedIds, setSelectedIds] = useState<string[]>(DEFAULT_SPOTS.map((s) => s.id))
-  // Het actieve raam dat momenteel in de ConfigPanel wordt ingesteld
   const [activeId, setActiveId] = useState<string | null>(DEFAULT_SPOTS[0]?.id ?? null)
-  const [applyToAll, setApplyToAll] = useState(true)
+  const [applyToAll, setApplyToAll] = useState(false)
 
   const activeSpot = useMemo(() => spots.find((s) => s.id === activeId) ?? spots[0] ?? null, [spots, activeId])
 
@@ -37,38 +35,27 @@ export function Visualizer() {
     setStage("configure")
   }
 
-  // Raam aan-/uitvinken
   function handleToggleWindow(id: string) {
     setSelectedIds((prev) => {
       const isSelected = prev.includes(id)
       const updated = isSelected ? prev.filter((item) => item !== id) : [...prev, id]
-      
-      // Indien het actieve raam werd uitgevinkt, kies het eerstvolgende actieve raam
       if (isSelected && activeId === id) {
         setActiveId(updated[0] ?? null)
       } else if (!isSelected) {
         setActiveId(id)
       }
-      
       return updated
     })
   }
 
-  // Alles selecteren
   function handleSelectAll() {
-    const allIds = spots.map((s) => s.id)
-    setSelectedIds(allIds)
-    if (!activeId && allIds.length > 0) {
-      setActiveId(allIds[0])
-    }
+    setSelectedIds(spots.map((s) => s.id))
   }
 
-  // Wis selectie
   function handleDeselectAll() {
     setSelectedIds([])
   }
 
-  // Eigenschappen van producten/kleuren bijwerken op geselecteerde ramen
   function handleUpdate(patch: Partial<WindowSpot>) {
     setSpots((prev) =>
       prev.map((s) => {
@@ -81,13 +68,6 @@ export function Visualizer() {
   }
 
   function handleGenerate() {
-    // Filter alleen de daadwerkelijk geselecteerde ramen voor de AI
-    const targetSpots = spots.filter((s) => selectedIds.includes(s.id))
-    
-    // Strikte prompt opbouwen voor Gemini inpainting
-    const prompt = buildGeminiPrompt(targetSpots)
-    console.log("Genereren met Gemini Prompt:\n", prompt)
-
     setStage("generating")
     setTimeout(() => setStage("result"), 4600)
   }
@@ -98,12 +78,11 @@ export function Visualizer() {
     setSpots(DEFAULT_SPOTS)
     setSelectedIds(DEFAULT_SPOTS.map((s) => s.id))
     setActiveId(DEFAULT_SPOTS[0]?.id ?? null)
-    setApplyToAll(true)
+    setApplyToAll(false)
   }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
-      {/* Intro */}
       <div className="mx-auto mb-10 max-w-2xl text-center">
         <Badge className="mb-4 gap-1.5 bg-brand/15 text-brand-foreground hover:bg-brand/15">
           <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
@@ -136,7 +115,7 @@ export function Visualizer() {
                 Andere foto
               </Button>
               <p className="text-xs text-muted-foreground">
-                {spots.length} zones gedetecteerd &middot; {selectedIds.length} geselecteerd voor AI-montage
+                {spots.length} zones gedetecteerd &middot; {selectedIds.length} geselecteerd
               </p>
             </div>
 
@@ -162,9 +141,7 @@ export function Visualizer() {
                 className="mt-6 w-full gap-2 bg-brand text-brand-foreground hover:bg-brand/90 disabled:opacity-50 cursor-pointer"
               >
                 <Wand2 className="h-4.5 w-4.5" aria-hidden="true" />
-                {selectedIds.length === 0
-                  ? "Selecteer minimaal 1 raam"
-                  : `Genereer Visualisatie (${selectedIds.length} ${selectedIds.length === 1 ? "raam" : "ramen"})`}
+                {selectedIds.length === 0 ? "Selecteer minimaal 1 raam" : "Genereer Visualisatie"}
               </Button>
             </Card>
           </div>

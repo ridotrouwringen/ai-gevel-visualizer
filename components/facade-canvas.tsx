@@ -20,7 +20,6 @@ export function FacadeCanvas({
   onSelectAll,
   onDeselectAll,
 }: FacadeCanvasProps) {
-  // We voegen hier optioneel een klik-handler toe om direct nieuwe ankerpunten toe te voegen als de lijst leeg is of via de canvas
   return (
     <div className="flex flex-col items-center gap-4 w-full">
       {spots.length > 0 && (
@@ -49,7 +48,7 @@ export function FacadeCanvas({
           className="object-contain max-h-[70vh] w-auto block select-none"
         />
 
-        {spots.map((spot, index) => {
+        {spots.map((spot) => {
           const isSelected = selectedIds.includes(spot.id);
           return (
             <div
@@ -67,7 +66,7 @@ export function FacadeCanvas({
               <input
                 type="checkbox"
                 checked={isSelected}
-                onChange={() => {}} // Wordt afgehandeld door de parent div onClick
+                onChange={() => {}}
                 className="pointer-events-none h-3.5 w-3.5 rounded border-white text-blue-600 focus:ring-0"
               />
             </div>
