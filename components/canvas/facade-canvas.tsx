@@ -5,24 +5,34 @@ import { useVisualizerStore } from '@/store/visualizer-store';
 import { UploadCloud, Trash2, MousePointer2 } from 'lucide-react';
 import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, ProductType, SystemColor, FabricColor } from '@/types/visualizer';
 
-// Hulpfunctie om de Hex-kleur op te halen aan de hand van het ID
+// Hulpfunctie om de Hex-kleur op te halen
 const getColorHex = (id: SystemColor | FabricColor | null) => {
   if (!id) return '#000000';
   const allColors = [...SYSTEM_COLORS, ...ZIPSCREEN_FABRICS, ...AWNING_FABRICS];
   return allColors.find(c => c.id === id)?.hex || '#000000';
 };
 
-// Wiskundige hulpfunctie: Kijkt of een X,Y punt binnen een Polygoon valt (Ray-casting algoritme)
+// Hit-Detection voor Vlakken (Ramen)
 const isPointInPolygon = (point: { x: number; y: number }, vs: { x: number; y: number }[]) => {
-  let x = point.x, y = point.y;
   let inside = false;
   for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-    let xi = vs[i].x, yi = vs[i].y;
-    let xj = vs[j].x, yj = vs[j].y;
-    let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    const xi = vs[i].x, yi = vs[i].y;
+    const xj = vs[j].x, yj = vs[j].y;
+    const intersect = ((yi > point.y) !== (yj > point.y)) && (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
     if (intersect) inside = !inside;
   }
   return inside;
+};
+
+// NIEUW: Hit-Detection voor Lijnen (Knikarmschermen) - kijkt of de klik binnen 'threshold' pixels valt
+const isPointNearLine = (px: number, py: number, x1: number, y1: number, x2: number, y2: number, threshold = 15) => {
+  const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+  if (l2 === 0) return Math.hypot(px - x1, py - y1) < threshold;
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  const projX = x1 + t * (x2 - x1);
+  const projY = y1 + t * (y2 - y1);
+  return Math.hypot(px - projX, py - projY) < threshold;
 };
 
 export function FacadeCanvas() {
@@ -36,11 +46,9 @@ export function FacadeCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  // State voor het tekenen van lijnen (Knikarmschermen)
   const [lineStart, setLineStart] = useState<{ x: number, y: number } | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
 
-  // Verwerkt de geüploade afbeelding
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -51,7 +59,6 @@ export function FacadeCanvas() {
     reader.readAsDataURL(file);
   };
 
-  // Teken-functie die over de foto heen tekent (wordt uitgevoerd bij elke wijziging in masks of muisbeweging)
   const drawCanvas = () => {
     const canvas = canvasRef.current;
     const img = imgRef.current;
@@ -60,13 +67,10 @@ export function FacadeCanvas() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Zorg dat de canvas exact zo groot is als de (geschaalde) afbeelding
     canvas.width = img.width;
     canvas.height = img.height;
-
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Teken alle opgeslagen maskers/lijnen
     masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
       
@@ -80,15 +84,12 @@ export function FacadeCanvas() {
         });
         ctx.closePath();
         
-        // Semi-transparante vulling
-        ctx.fillStyle = `${hexColor}66`; // 40% opacity
+        ctx.fillStyle = `${hexColor}66`;
         ctx.fill();
-        // Harde randlijn
         ctx.strokeStyle = hexColor;
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Teken Nummer Badge in het midden
         const midX = mask.coordinates.reduce((sum, c) => sum + c.x, 0) / mask.coordinates.length * canvas.width;
         const midY = mask.coordinates.reduce((sum, c) => sum + c.y, 0) / mask.coordinates.length * canvas.height;
         drawBadge(ctx, midX, midY, mask.sequenceNumber, hexColor);
@@ -107,26 +108,23 @@ export function FacadeCanvas() {
         ctx.lineWidth = 4;
         ctx.stroke();
 
-        // Teken Nummer Badge
         drawBadge(ctx, (startX + endX) / 2, (startY + endY) / 2, mask.sequenceNumber, hexColor);
       }
     });
 
-    // 2. Teken de tijdelijke lijn als we bezig zijn met een Knikarmscherm
     if (lineStart && mousePos) {
       const hexColor = getColorHex(activeFabricColor || activeSystemColor);
       ctx.beginPath();
       ctx.moveTo(lineStart.x * canvas.width, lineStart.y * canvas.height);
       ctx.lineTo(mousePos.x * canvas.width, mousePos.y * canvas.height);
-      ctx.strokeStyle = `${hexColor}AA`; // Transparant tijdens het trekken
-      ctx.setLineDash([5, 5]); // Gestippeld
+      ctx.strokeStyle = `${hexColor}AA`;
+      ctx.setLineDash([5, 5]);
       ctx.lineWidth = 3;
       ctx.stroke();
-      ctx.setLineDash([]); // Reset
+      ctx.setLineDash([]);
     }
   };
 
-  // Helper voor het tekenen van de (1, 2, 3...) bolletjes
   const drawBadge = (ctx: CanvasRenderingContext2D, x: number, y: number, text: number, color: string) => {
     ctx.beginPath();
     ctx.arc(x, y, 12, 0, Math.PI * 2);
@@ -135,7 +133,6 @@ export function FacadeCanvas() {
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = 2;
     ctx.stroke();
-    
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 14px Arial';
     ctx.textAlign = 'center';
@@ -143,40 +140,50 @@ export function FacadeCanvas() {
     ctx.fillText(text.toString(), x, y);
   };
 
-  // Her-teken canvas bij state of venstergrootte veranderingen
   useEffect(() => {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
   }, [masks, lineStart, mousePos, originalImage]);
 
-  // Handelt klikken op het canvas af
   const handleCanvasClick = (e: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Bereken relatieve klik (0.0 tot 1.0) zodat het meeschaalt
     const rect = canvas.getBoundingClientRect();
-    const clickX = (e.clientX - rect.left) / canvas.width;
-    const clickY = (e.clientY - rect.top) / canvas.height;
+    // Echte pixel coördinaten voor de berekeningen (Hit detection)
+    const pixelX = e.clientX - rect.left;
+    const pixelY = e.clientY - rect.top;
+    
+    // Relatieve coördinaten (0.0 - 1.0) voor het opslaan
+    const clickX = pixelX / canvas.width;
+    const clickY = pixelY / canvas.height;
 
-    // 1. HIT DETECTION: Hebben we op een bestaand raam/polygoon geklikt?
-    // We doorlopen de masks achterstevoren (zodat de bovenste eerst gepakt wordt)
+    // 1. HIT DETECTION: Deselecteer als we ergens op klikken
     for (let i = masks.length - 1; i >= 0; i--) {
       const mask = masks[i];
-      if (mask.type === 'POLYGON' && isPointInPolygon({ x: clickX, y: clickY }, mask.coordinates)) {
-        removeMask(mask.id);
-        return; // Stop verdere executie, we hebben alleen gedeselecteerd
+      if (mask.type === 'POLYGON') {
+        const pixelCoords = mask.coordinates.map(c => ({ x: c.x * canvas.width, y: c.y * canvas.height }));
+        if (isPointInPolygon({ x: pixelX, y: pixelY }, pixelCoords)) {
+          removeMask(mask.id);
+          return;
+        }
+      } else if (mask.type === 'LINE' && mask.coordinates.length === 2) {
+        const p1 = { x: mask.coordinates[0].x * canvas.width, y: mask.coordinates[0].y * canvas.height };
+        const p2 = { x: mask.coordinates[1].x * canvas.width, y: mask.coordinates[1].y * canvas.height };
+        // Als je binnen 15 pixels van de lijn klikt, verwijder hem
+        if (isPointNearLine(pixelX, pixelY, p1.x, p1.y, p2.x, p2.y, 15)) {
+          removeMask(mask.id);
+          return;
+        }
       }
     }
 
     // 2. NIEUWE SELECTIE TOEVOEGEN
     if (activeProduct === 'KNIKARMSCHERMEN') {
-      // 2-Point Line Tool logica
       if (!lineStart) {
         setLineStart({ x: clickX, y: clickY });
       } else {
-        // We hebben een start én eindpunt: Sla de lijn op
         addMask({
           type: 'LINE',
           coordinates: [lineStart, { x: clickX, y: clickY }],
@@ -184,19 +191,19 @@ export function FacadeCanvas() {
           systemColor: activeSystemColor,
           fabricColor: activeFabricColor || undefined
         });
-        setLineStart(null); // Reset lijn status
+        setLineStart(null);
       }
     } else {
-      // Rolluiken / Zipscreens Vlakken Tool
-      // TODO: Hier komt in de volgende fase de OpenCV/Edge Detection die het hele kozijn zoekt.
-      // Voor nu genereren we een gesimuleerde rechthoek van 10% breed en 15% hoog rondom de klik.
-      const width = 0.10;
-      const height = 0.15;
+      // Tijdelijke Marker (Simulatie van AI detectie)
+      // Omdat echte detectie later via backend gebeurt, tekenen we nu 
+      // een kleine marker/box (5% breed/hoog) zodat je weet waar je geklikt hebt.
+      const width = 0.05;
+      const height = 0.05;
       const dummyCoordinates = [
-        { x: clickX - width/2, y: clickY - height/2 }, // Links-Boven
-        { x: clickX + width/2, y: clickY - height/2 }, // Rechts-Boven
-        { x: clickX + width/2, y: clickY + height/2 }, // Rechts-Onder
-        { x: clickX - width/2, y: clickY + height/2 }  // Links-Onder
+        { x: clickX - width/2, y: clickY - height/2 },
+        { x: clickX + width/2, y: clickY - height/2 },
+        { x: clickX + width/2, y: clickY + height/2 },
+        { x: clickX - width/2, y: clickY + height/2 }
       ];
 
       addMask({
@@ -209,7 +216,6 @@ export function FacadeCanvas() {
     }
   };
 
-  // Muistracking voor de Knikarmscherm lijn preview
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
     if (!lineStart || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -226,9 +232,7 @@ export function FacadeCanvas() {
            <UploadCloud className="w-8 h-8 text-gray-500" />
          </div>
          <h3 className="text-lg font-semibold text-gray-900 mb-2">Upload een gevel foto</h3>
-         <p className="text-gray-500 mb-6 max-w-md">
-           Kies een duidelijke foto van de voor- of achterkant van het huis. Zorg dat de ramen goed zichtbaar zijn.
-         </p>
+         <p className="text-gray-500 mb-6 max-w-md">Kies een duidelijke foto van de voor- of achterkant van het huis. Zorg dat de ramen goed zichtbaar zijn.</p>
          <input type="file" accept="image/jpeg, image/png, image/webp" className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
          <button onClick={() => fileInputRef.current?.click()} className="bg-white border border-gray-300 text-gray-700 font-medium py-2 px-6 rounded-md hover:bg-gray-50 transition-colors shadow-sm">
            Kies Afbeelding
@@ -239,8 +243,6 @@ export function FacadeCanvas() {
 
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-gray-200 rounded-xl overflow-hidden shadow-inner p-4">
-      
-      {/* Wrapper zorgt dat canvas exact op de afbeelding ligt, ongeacht de verhouding */}
       <div className="relative inline-block max-w-full max-h-full" ref={containerRef}>
         <img 
           src={originalImage} 
@@ -249,23 +251,20 @@ export function FacadeCanvas() {
           onLoad={drawCanvas}
           className="block max-w-full max-h-[80vh] object-contain shadow-md rounded-sm"
         />
-        
-        {/* Interactieve Canvas Laag */}
         <canvas 
           ref={canvasRef}
           onClick={handleCanvasClick}
           onMouseMove={handleMouseMove}
           className={`absolute top-0 left-0 w-full h-full rounded-sm ${activeProduct === 'KNIKARMSCHERMEN' ? 'cursor-crosshair' : 'cursor-pointer'}`}
-          style={{ touchAction: 'none' }} // Voorkomt scrollen op mobiel tijdens tekenen
+          style={{ touchAction: 'none' }}
         />
       </div>
       
-      {/* Tool Tip Info Bar */}
       <div className="absolute top-4 left-4 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
         <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
         {activeProduct === 'KNIKARMSCHERMEN' 
           ? lineStart ? "Klik op het eindpunt van de gevel om de lijn te voltooien." : "Klik 2 punten op de muur om de breedte van het knikarmscherm te bepalen."
-          : "Klik ergens in het raam/kozijn om het hele element te selecteren. Klik nogmaals om te verwijderen."
+          : "Klik op een raam om deze te markeren voor de AI-detectie. Klik nogmaals om te verwijderen."
         }
       </div>
 
