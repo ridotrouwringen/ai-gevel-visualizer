@@ -5,14 +5,12 @@ import { useVisualizerStore } from '@/store/visualizer-store';
 import { UploadCloud, Trash2, MousePointer2 } from 'lucide-react';
 import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, ProductType, SystemColor, FabricColor } from '@/types/visualizer';
 
-// Hulpfunctie om de Hex-kleur op te halen
 const getColorHex = (id: SystemColor | FabricColor | null) => {
   if (!id) return '#000000';
   const allColors = [...SYSTEM_COLORS, ...ZIPSCREEN_FABRICS, ...AWNING_FABRICS];
   return allColors.find(c => c.id === id)?.hex || '#000000';
 };
 
-// Hit-Detection voor Vlakken (Ramen)
 const isPointInPolygon = (point: { x: number; y: number }, vs: { x: number; y: number }[]) => {
   let inside = false;
   for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
@@ -24,7 +22,6 @@ const isPointInPolygon = (point: { x: number; y: number }, vs: { x: number; y: n
   return inside;
 };
 
-// NIEUW: Hit-Detection voor Lijnen (Knikarmschermen) - kijkt of de klik binnen 'threshold' pixels valt
 const isPointNearLine = (px: number, py: number, x1: number, y1: number, x2: number, y2: number, threshold = 15) => {
   const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
   if (l2 === 0) return Math.hypot(px - x1, py - y1) < threshold;
@@ -61,15 +58,18 @@ export function FacadeCanvas() {
 
   const drawCanvas = () => {
     const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    canvas.width = img.width;
-    canvas.height = img.height;
+    // FIX: Gebruik de exacte schermpixels in plaats van originele afbeeldingresolutie
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = 'round'; // Zorgt voor mooie ronde uiteinden aan de lijnen
 
     masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
@@ -151,27 +151,24 @@ export function FacadeCanvas() {
     if (!canvas) return;
 
     const rect = canvas.getBoundingClientRect();
-    // Echte pixel coördinaten voor de berekeningen (Hit detection)
     const pixelX = e.clientX - rect.left;
     const pixelY = e.clientY - rect.top;
     
-    // Relatieve coördinaten (0.0 - 1.0) voor het opslaan
-    const clickX = pixelX / canvas.width;
-    const clickY = pixelY / canvas.height;
+    // FIX: Bereken relatieve posities op basis van scherm element, niet interne canvas width
+    const clickX = pixelX / rect.width;
+    const clickY = pixelY / rect.height;
 
-    // 1. HIT DETECTION: Deselecteer als we ergens op klikken
     for (let i = masks.length - 1; i >= 0; i--) {
       const mask = masks[i];
       if (mask.type === 'POLYGON') {
-        const pixelCoords = mask.coordinates.map(c => ({ x: c.x * canvas.width, y: c.y * canvas.height }));
+        const pixelCoords = mask.coordinates.map(c => ({ x: c.x * rect.width, y: c.y * rect.height }));
         if (isPointInPolygon({ x: pixelX, y: pixelY }, pixelCoords)) {
           removeMask(mask.id);
           return;
         }
       } else if (mask.type === 'LINE' && mask.coordinates.length === 2) {
-        const p1 = { x: mask.coordinates[0].x * canvas.width, y: mask.coordinates[0].y * canvas.height };
-        const p2 = { x: mask.coordinates[1].x * canvas.width, y: mask.coordinates[1].y * canvas.height };
-        // Als je binnen 15 pixels van de lijn klikt, verwijder hem
+        const p1 = { x: mask.coordinates[0].x * rect.width, y: mask.coordinates[0].y * rect.height };
+        const p2 = { x: mask.coordinates[1].x * rect.width, y: mask.coordinates[1].y * rect.height };
         if (isPointNearLine(pixelX, pixelY, p1.x, p1.y, p2.x, p2.y, 15)) {
           removeMask(mask.id);
           return;
@@ -179,7 +176,6 @@ export function FacadeCanvas() {
       }
     }
 
-    // 2. NIEUWE SELECTIE TOEVOEGEN
     if (activeProduct === 'KNIKARMSCHERMEN') {
       if (!lineStart) {
         setLineStart({ x: clickX, y: clickY });
@@ -194,9 +190,6 @@ export function FacadeCanvas() {
         setLineStart(null);
       }
     } else {
-      // Tijdelijke Marker (Simulatie van AI detectie)
-      // Omdat echte detectie later via backend gebeurt, tekenen we nu 
-      // een kleine marker/box (5% breed/hoog) zodat je weet waar je geklikt hebt.
       const width = 0.05;
       const height = 0.05;
       const dummyCoordinates = [
@@ -219,9 +212,11 @@ export function FacadeCanvas() {
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
     if (!lineStart || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
+    
+    // FIX: Muistracking nu ook op basis van schermbreedte
     setMousePos({
-      x: (e.clientX - rect.left) / canvasRef.current.width,
-      y: (e.clientY - rect.top) / canvasRef.current.height,
+      x: (e.clientX - rect.left) / rect.width,
+      y: (e.clientY - rect.top) / rect.height,
     });
   };
 
