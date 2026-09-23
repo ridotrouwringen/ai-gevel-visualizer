@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 
     console.log("Start Replicate run met prompt:", prompt);
 
-    // Roep Replicate aan
+    // Voer de AI-taak uit
     const output: any = await replicate.run(
       "black-forest-labs/flux-dev",
       {
@@ -46,23 +46,17 @@ export async function POST(req: Request) {
       }
     );
 
-    // Super-veilige URL extractie voor alle Replicate versies
+    // Correcte URL extractie volgens de Replicate SDK standaards
     let resultImageUrl = "";
-    const targetOutput = Array.isArray(output) ? output[0] : output;
-
-    if (targetOutput) {
-      if (typeof targetOutput === 'string') {
-        resultImageUrl = targetOutput;
-      } else if (typeof targetOutput.url === 'function') {
-        resultImageUrl = targetOutput.url();
-      } else if (targetOutput.url && typeof targetOutput.url === 'string') {
-        resultImageUrl = targetOutput.url;
-      } else {
-        resultImageUrl = String(targetOutput);
-      }
+    
+    if (Array.isArray(output)) {
+      const firstItem = output[0];
+      resultImageUrl = typeof firstItem === 'function' ? firstItem() : String(firstItem);
+    } else if (output) {
+      resultImageUrl = typeof output.url === 'function' ? output.url() : String(output);
     }
 
-    if (!resultImageUrl || !resultImageUrl.startsWith('http')) {
+    if (!resultImageUrl || resultImageUrl.includes("[object Object]")) {
       throw new Error("Kon geen geldige afbeeldings-URL extraheren uit de AI-respons.");
     }
 
