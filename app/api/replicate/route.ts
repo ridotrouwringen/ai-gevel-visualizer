@@ -23,29 +23,22 @@ export async function POST(req: Request) {
     const product = primarySelection.productType;
     const color = primarySelection.systemColor.replace('RAL_', 'RAL ');
 
-    let productName = "roller shutter (rolluik)";
-    if (product === 'ZIPSCREENS') productName = "modern vertical zip screen";
-    if (product === 'KNIKARMSCHERMEN') productName = "folding arm awning";
+    const prompt = `A photorealistic architectural photo of a modern house facade with a ${product.toLowerCase()} in color ${color} installed on the window. High quality, natural daylight.`;
 
-    const prompt = `A professional real estate photo of this exact house facade. Neatly add a ${productName} in system color ${color} onto the front window. Maintain the exact building perspective, architecture, bricks, and lighting.`;
-
-    console.log("Replicate aanroep gestart met prompt:", prompt);
-
-    // We gebruiken black-forest-labs/flux-dev en leveren de afbeelding aan als data-URI (base64)
+    // Stabiele aanroep volgens de officiële Replicate SDK voor Node.js
     const output: any = await replicate.run(
       "black-forest-labs/flux-dev",
       {
         input: {
           prompt: prompt,
-          image: image,
-          prompt_strength: 0.55,
+          go_fast: true,
           output_format: "jpg",
           output_quality: 90
         }
       }
     );
 
-    // Veilige extractie van de gegenereerde URL
+    // Correcte afhandeling van de output URL volgens Replicate v1.0+ standaards
     let resultImageUrl = "";
     if (Array.isArray(output)) {
       resultImageUrl = typeof output[0]?.url === 'function' ? output[0].url() : output[0];
@@ -56,7 +49,7 @@ export async function POST(req: Request) {
     }
 
     if (!resultImageUrl || typeof resultImageUrl !== 'string') {
-      throw new Error("Kon geen geldige afbeeldings-URL genereren uit de AI-respons.");
+      throw new Error("Kon geen geldige afbeelding-URL extraheren.");
     }
 
     return NextResponse.json({ 
@@ -67,6 +60,6 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error("Replicate API Error:", error);
-    return NextResponse.json({ error: error.message || "Interne serverfout bij het benaderen van Replicate." }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Interne serverfout." }, { status: 500 });
   }
 }
