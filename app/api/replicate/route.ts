@@ -19,29 +19,30 @@ export async function POST(req: Request) {
       auth: apiKey,
     });
 
-    const primarySelection = selections.length > 0 ? selections[0] : null;
-    const product = primarySelection ? primarySelection.productType : 'zonwering';
-    const color = primarySelection ? primarySelection.systemColor.replace('RAL_', 'RAL ') : 'antraciet';
+    const primarySelection = selections[0];
+    const product = primarySelection.productType;
+    const color = primarySelection.systemColor.replace('RAL_', 'RAL ');
 
-    // Een heel directe prompt die de AI dwingt om het product zichtbaar toe te voegen
-    let productDescription = "sun shading system";
-    if (product === 'ROLLUIKEN') productDescription = `closed exterior roller shutter (rolluik) in system color ${color}`;
-    if (product === 'ZIPSCREENS') productDescription = `modern vertical zip screen in system color ${color}`;
-    if (product === 'KNIKARMSCHERMEN') productDescription = `folding arm awning in system color ${color}`;
+    // Specifieke prompt voor FLUX Fill inpainting
+    let promptText = "exterior roller shutter (rolluik)";
+    if (product === 'ZIPSCREENS') promptText = "modern vertical zip screen sun protection";
+    if (product === 'KNIKARMSCHERMEN') promptText = "modern folding arm awning (knikarmscherm)";
 
-    const prompt = `A professional real estate photo of this exact house facade. Clearly and visibly add a ${productDescription} mounted onto the front window. High detail, realistic shadows, matching the original building perspective, architecture, and daylight.`;
+    const fullPrompt = `A photorealistic ${promptText} in system color ${color}, mounted professionally on the window frame, matching perspective and shadows.`;
 
-    console.log("Strenge AI Prompt:", prompt);
+    console.log("Start FLUX Fill Inpainting met prompt:", fullPrompt);
 
+    // We gebruiken het officiële black-forest-labs/flux-fill-dev model voor inpainting
     const output: any = await replicate.run(
-      "black-forest-labs/flux-dev",
+      "black-forest-labs/flux-fill-dev",
       {
         input: {
-          prompt: prompt,
           image: image,
-          prompt_strength: 0.65, // Verhoogd zodat de AI het product nu wél actief toevoegt met behoud van het huis
+          prompt: fullPrompt,
           output_format: "jpg",
-          output_quality: 90
+          output_quality: 90,
+          num_inference_steps: 28,
+          guidance: 30
         }
       }
     );
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ 
       success: true, 
       imageUrl: resultImageUrl,
-      message: "Visualisatie succesvol gegenereerd!" 
+      message: "Zonwering succesvol ingetekend door de AI!" 
     });
 
   } catch (error: any) {
