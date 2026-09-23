@@ -12,7 +12,6 @@ export default function Home() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   const handleGenerate = async () => {
-    // 1. Validatie: Is er wel een foto en is er wel iets getekend?
     if (!originalImage) {
       toast.error("Upload eerst een gevel foto!");
       return;
@@ -25,28 +24,41 @@ export default function Home() {
 
     setIsGenerating(true);
 
-    // 2. Het Data Pakketje (JSON Payload) voorbereiden voor de AI Server
     const payload = {
-      image: originalImage, // Dit is de ruwe basisfoto (Base64) - nodig voor lossless generatie
+      image: originalImage,
       selections: masks.map(mask => ({
         id: mask.id,
         productType: mask.productType,
         systemColor: mask.systemColor,
         fabricColor: mask.fabricColor,
-        type: mask.type, // Lijn of Vlak
-        coordinates: mask.coordinates // De X/Y posities op de muur
+        type: mask.type,
+        coordinates: mask.coordinates
       }))
     };
 
-    // Voor nu loggen we het pakketje in de console, zodat je kunt zien wat er straks verzonden wordt
-    console.log("🚀 Klaar om naar de AI Server te sturen:", JSON.stringify(payload, null, 2));
-
     try {
-      // 3. Simulatie van de AI berekening (Straks komt hier de echte koppeling)
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Wacht 2 seconden
-      toast.success("Data succesvol verzameld! (Check de F12 Console voor het JSON pakket)");
-    } catch (error) {
-      toast.error("Er is iets misgegaan bij het verzamelen van de data.");
+      // HIER KOPPELEN WE DE VOORKANT AAN JOUW NIEUWE ACHTERKANT
+      const response = await fetch('/api/replicate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Als de server een foutmelding geeft (bijv. API key ontbreekt), gooi een error
+        throw new Error(data.error || "Er is een onbekende fout opgetreden");
+      }
+
+      // Succes!
+      toast.success(data.message || "Succesvol naar de server gestuurd!");
+      
+    } catch (error: any) {
+      console.error("Fout bij genereren:", error);
+      toast.error(error.message || "Kan de server niet bereiken.");
     } finally {
       setIsGenerating(false);
     }
@@ -54,18 +66,14 @@ export default function Home() {
 
   return (
     <main className="flex h-screen w-full bg-gray-50 overflow-hidden font-sans">
-      {/* Sonner Toaster voor de pop-up meldingen */}
       <Toaster position="top-center" richColors />
 
-      {/* Linker Paneel: Configurator */}
       <aside className="w-96 h-full flex-shrink-0 shadow-lg z-10 relative">
         <ProductSelector />
       </aside>
 
-      {/* Rechter Paneel: Canvas & AI Visualizer */}
       <section className="flex-1 h-full relative flex flex-col">
         
-        {/* Topbar */}
         <header className="h-16 bg-white border-b border-gray-200 flex items-center px-6 justify-between flex-shrink-0 z-10">
           <h1 className="text-xl font-bold text-gray-800">AI-Zonwering Visualizer</h1>
           
@@ -83,7 +91,6 @@ export default function Home() {
           </button>
         </header>
 
-        {/* Werkruimte */}
         <div className="flex-1 p-6 relative flex items-center justify-center bg-gray-100 overflow-auto">
           <FacadeCanvas />
         </div>
