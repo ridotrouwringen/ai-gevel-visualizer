@@ -1,32 +1,6 @@
 import { NextResponse } from 'next/server';
 import Replicate from 'replicate';
 
-// Gericht op inpainting: we behouden het originele huis en passen alleen het geselecteerde deel aan
-function buildInpaintPrompt(productType: string, systemColor: string, fabricColor?: string) {
-  let colorName = systemColor.replace('RAL_', 'RAL ');
-  if (colorName === '9005') colorName += ' Jet Black';
-  if (colorName === '7016') colorName += ' Anthracite Grey';
-  if (colorName === '9010') colorName += ' Pure White';
-  if (colorName === '9001') colorName += ' Cream White';
-
-  let fabricDesc = '';
-  if (fabricColor) {
-    const cleanFabric = fabricColor.replace('_', ' ').toLowerCase();
-    fabricDesc = ` with a ${cleanFabric} colored fabric screen`;
-  }
-
-  switch (productType) {
-    case 'ROLLUIKEN':
-      return `A closed exterior roller shutter (rolluik) with aluminum casing and side guides in ${colorName}, perfectly fitted on this exact window, photorealistic matching the existing building architecture and lighting.`;
-    case 'ZIPSCREENS':
-      return `A modern vertical zip screen sun protection mounted on this window, with cassette and side channels in ${colorName}${fabricDesc}, photorealistic matching the house facade perspective and shadows.`;
-    case 'KNIKARMSCHERMEN':
-      return `A modern folding arm awning (knikarmscherm) mounted horizontally on the facade above the window, cassette in ${colorName} and extended awning canvas${fabricDesc}, matching the building's lighting and perspective.`;
-    default:
-      return `An exterior sun shading system in color ${colorName}, seamlessly integrated into the existing building structure.`;
-  }
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -45,35 +19,43 @@ export async function POST(req: Request) {
       auth: apiKey,
     });
 
-    const primarySelection = selections[0];
-    const targetPrompt = buildInpaintPrompt(
-      primarySelection.productType, 
-      primarySelection.systemColor, 
-      primarySelection.fabricColor
-    );
+    const primarySelection = selections.length > 0 ? selections[0] : null;
+    const product = primarySelection ? primarySelection.productType : 'zonwering';
+    const color = primarySelection ? primarySelection.systemColor.replace('RAL_', 'RAL ') : 'antraciet';
 
-    console.log("Inpaint Prompt geselecteerd:", targetPrompt);
+    // Een heldere, directe prompt voor de AI om het product toe te voegen
+    const prompt = `A photorealistic architectural photo of a building facade. Add a modern ${product.toLowerCase()} in system color ${color} neatly mounted on the window. Keep the rest of the house, walls, bricks, and lighting completely identical to the input image.`;
 
-    // FLUX Fill vereist een afbeelding en een instructie (prompt) om het geselecteerde deel te bewerken
+    console.log("Start Replicate run met prompt:", prompt);
+
+    // We gebruiken de stabiele FLUX dev configuratie met invoer-afbeelding
     const output: any = await replicate.run(
-      "black-forest-labs/flux-fill-dev",
+      "black-forest-labs/flux-dev",
       {
         input: {
-          image: image, // De originele foto van de klant blijft intact als basis
-          prompt: targetPrompt,
+          prompt: prompt,
+          image: image, // De base64 string van de foto
+          prompt_strength: 0.35, // Zorgt dat het huis behouden blijft en alleen de zonwering wordt toegevoegd
           output_format: "jpg",
-          num_inference_steps: 28,
-          guidance: 30
+          output_quality: 90
         }
       }
     );
 
-    const resultImageUrl = Array.isArray(output) ? output[0] : (output?.url ? output.url() : output);
+    // Replicate geeft een URL of een array met URL's terug
+    let resultImageUrl = "";
+    if (Array.isArray(output)) {
+      resultImageUrl = output[0];
+    } else if (output && typeof output.url === 'function') {
+      resultImageUrl = output.url();
+    } else {
+      resultImageUrl = output;
+    }
 
     return NextResponse.json({ 
       success: true, 
       imageUrl: resultImageUrl,
-      message: "Gevel succesvol voorzien van zonwering!" 
+      message: "Visualisatie succesvol gegenereerd!" 
     });
 
   } catch (error: any) {
