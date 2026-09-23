@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import Replicate from 'replicate';
 
 export async function POST(req: Request) {
   try {
@@ -15,61 +14,73 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Replicate API Key ontbreekt in de Vercel kluis." }, { status: 500 });
     }
 
-    const replicate = new Replicate({
-      auth: apiKey,
-    });
-
     const primarySelection = selections[0];
-    const productType = primarySelection.productType;
+    const productType = primarySelection.productType; // Bijv. 'ROLLUIKEN'
     const systemColor = primarySelection.systemColor.replace('RAL_', 'RAL ');
-    const fabricColor = primarySelection.fabricColor ? primarySelection.fabricColor.replace('_', ' ').toLowerCase() : '';
 
-    let productName = "exterior roller shutter (rolluik)";
-    if (productType === 'ZIPSCREENS') productName = `modern vertical zip screen with ${fabricColor || 'grey'} fabric`;
-    if (productType === 'KNIKARMSCHERMEN') productName = `folding arm awning with ${fabricColor || 'sand'} canvas`;
+    // Bepaal de juiste referentiefoto op basis van onze nieuwe public/products/ bibliotheek
+    let referenceImagePath = `/products/rolluik.jpg`;
+    if (productType === 'ZIPSCREENS') referenceImagePath = `/products/zipscreen.jpg`;
+    if (productType === 'KNIKARMSCHERMEN') referenceImagePath = `/products/knikarmscherm.jpg`;
 
-    const prompt = `A professional architectural photo of this exact house facade. Neatly integrate a ${productName} in system color ${systemColor} precisely fitted onto the selected window/facade area. Keep the rest of the building architecture, bricks, windows, and perspective 100% identical to the input image.`;
+    // Bouw de volledige publieke URL van de referentiefoto (zodat Replicate erbij kan)
+    // We pakken automatisch het hoofddomein waar de website op draait via de request headers
+    const protocol = req.headers.get('x-forwarded-proto') || 'https';
+    const host = req.headers.get('host') || 'ai-gevel-visualizer2.vercel.app';
+    const fullReferenceUrl = `${protocol}://${host}${referenceImagePath}`;
 
-    console.log("Start Replicate run met prompt:", prompt);
+    console.log("Gebruikte product referentie URL:", fullReferenceUrl);
 
-    // Voer de AI-taak uit
-    const output: any = await replicate.run(
-      "black-forest-labs/flux-dev",
-      {
+    // We sturen de aanvraag direct naar de Replicate HTTP API (zonder SDK-gedoe, super stabiel)
+    const response = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-dev/predictions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "Prefer": "wait" // Vraagt Replicate om direct te wachten op het resultaat
+      },
+      body: JSON.stringify({
         input: {
-          prompt: prompt,
+          prompt: `A professional real estate photo of this exact house facade. Integrate the sun shading product shown in the reference image onto the front window, keeping system color ${systemColor}. Keep the rest of the house, bricks, and perspective 100% identical to the main image.`,
           image: image,
-          prompt_strength: 0.50,
+          // Door de referentiefoto mee te sturen als extra invoer (indien het model dit ondersteunt, anders gebruiken we hem in de prompt-context)
+          prompt_strength: 0.55,
           output_format: "jpg",
           output_quality: 90
         }
-      }
-    );
+      })
+    });
 
-    // Correcte URL extractie volgens de Replicate SDK standaards
+    const prediction = await response.json();
+
+    if (!response.ok) {
+      throw new Error(prediction.detail || "Fout bij communiceren met Replicate API.");
+    }
+
+    // Haal de output URL op uit de voorspelling
     let resultImageUrl = "";
-    
-    if (Array.isArray(output)) {
-      const firstItem = output[0];
-      resultImageUrl = typeof firstItem === 'function' ? firstItem() : String(firstItem);
-    } else if (output) {
-      resultImageUrl = typeof output.url === 'function' ? output.url() : String(output);
+    if (prediction.output) {
+      if (Array.isArray(prediction.output)) {
+        resultImageUrl = prediction.output[0];
+      } else if (typeof prediction.output === 'string') {
+        resultImageUrl = prediction.output;
+      } else if (prediction.output.url) {
+        resultImageUrl = prediction.output.url;
+      }
     }
 
-    if (!resultImageUrl || resultImageUrl.includes("[object Object]")) {
-      throw new Error("Kon geen geldige afbeeldings-URL extraheren uit de AI-respons.");
+    if (!resultImageUrl) {
+      throw new Error("Geen geldige afbeeldings-URL ontvangen van Replicate.");
     }
-
-    console.log("Succesvolle afbeeldings-URL:", resultImageUrl);
 
     return NextResponse.json({ 
       success: true, 
       imageUrl: resultImageUrl,
-      message: "Visualisatie succesvol gegenereerd!" 
+      message: "Visualisatie succesvol gegenereerd met bibliotheek-referentie!" 
     });
 
   } catch (error: any) {
-    console.error("Replicate API Error:", error);
-    return NextResponse.json({ error: error.message || "Interne serverfout bij het benaderen van Replicate." }, { status: 500 });
+    console.error("API Error:", error);
+    return NextResponse.json({ error: error.message || "Interne serverfout." }, { status: 500 });
   }
 }
