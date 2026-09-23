@@ -63,13 +63,12 @@ export function FacadeCanvas() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // FIX: Gebruik de exacte schermpixels in plaats van originele afbeeldingresolutie
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width;
     canvas.height = rect.height;
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.lineCap = 'round'; // Zorgt voor mooie ronde uiteinden aan de lijnen
+    ctx.lineCap = 'round';
 
     masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
@@ -154,7 +153,6 @@ export function FacadeCanvas() {
     const pixelX = e.clientX - rect.left;
     const pixelY = e.clientY - rect.top;
     
-    // FIX: Bereken relatieve posities op basis van scherm element, niet interne canvas width
     const clickX = pixelX / rect.width;
     const clickY = pixelY / rect.height;
 
@@ -180,9 +178,10 @@ export function FacadeCanvas() {
       if (!lineStart) {
         setLineStart({ x: clickX, y: clickY });
       } else {
+        // FIX: Forceer de eind-Y om EXACT hetzelfde te zijn als de start-Y (Waterpas lijn)
         addMask({
           type: 'LINE',
-          coordinates: [lineStart, { x: clickX, y: clickY }],
+          coordinates: [lineStart, { x: clickX, y: lineStart.y }],
           productType: activeProduct,
           systemColor: activeSystemColor,
           fabricColor: activeFabricColor || undefined
@@ -213,11 +212,15 @@ export function FacadeCanvas() {
     if (!lineStart || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     
-    // FIX: Muistracking nu ook op basis van schermbreedte
-    setMousePos({
-      x: (e.clientX - rect.left) / rect.width,
-      y: (e.clientY - rect.top) / rect.height,
-    });
+    const currentX = (e.clientX - rect.left) / rect.width;
+    let currentY = (e.clientY - rect.top) / rect.height;
+
+    // FIX: Vergrendel de muispreview-lijn ook op de horizontale as (waterpas)
+    if (activeProduct === 'KNIKARMSCHERMEN') {
+        currentY = lineStart.y;
+    }
+
+    setMousePos({ x: currentX, y: currentY });
   };
 
   if (!originalImage) {
