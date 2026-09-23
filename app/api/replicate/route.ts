@@ -23,51 +23,46 @@ export async function POST(req: Request) {
     const product = primarySelection.productType;
     const color = primarySelection.systemColor.replace('RAL_', 'RAL ');
 
-    // Specifieke prompt voor FLUX Fill inpainting
-    let promptText = "exterior roller shutter (rolluik)";
-    if (product === 'ZIPSCREENS') promptText = "modern vertical zip screen sun protection";
-    if (product === 'KNIKARMSCHERMEN') promptText = "modern folding arm awning (knikarmscherm)";
+    let productName = "roller shutter (rolluik)";
+    if (product === 'ZIPSCREENS') productName = "modern vertical zip screen";
+    if (product === 'KNIKARMSCHERMEN') productName = "folding arm awning";
 
-    const fullPrompt = `A photorealistic ${promptText} in system color ${color}, mounted professionally on the window frame, matching perspective and shadows.`;
+    const prompt = `A professional real estate photo of this exact house facade. Neatly add a ${productName} in system color ${color} onto the front window. Maintain the exact building perspective, architecture, bricks, and lighting.`;
 
-    console.log("Start FLUX Fill Inpainting met prompt:", fullPrompt);
+    console.log("Replicate aanroep gestart met prompt:", prompt);
 
-    // We gebruiken het officiële black-forest-labs/flux-fill-dev model voor inpainting
+    // We gebruiken black-forest-labs/flux-dev en leveren de afbeelding aan als data-URI (base64)
     const output: any = await replicate.run(
-      "black-forest-labs/flux-fill-dev",
+      "black-forest-labs/flux-dev",
       {
         input: {
+          prompt: prompt,
           image: image,
-          prompt: fullPrompt,
+          prompt_strength: 0.55,
           output_format: "jpg",
-          output_quality: 90,
-          num_inference_steps: 28,
-          guidance: 30
+          output_quality: 90
         }
       }
     );
 
+    // Veilige extractie van de gegenereerde URL
     let resultImageUrl = "";
-    const fileOutput = Array.isArray(output) ? output[0] : output;
-
-    if (fileOutput) {
-      if (typeof fileOutput.url === 'function') {
-        resultImageUrl = fileOutput.url();
-      } else if (typeof fileOutput === 'string') {
-        resultImageUrl = fileOutput;
-      } else if (fileOutput.url) {
-        resultImageUrl = fileOutput.url;
-      }
+    if (Array.isArray(output)) {
+      resultImageUrl = typeof output[0]?.url === 'function' ? output[0].url() : output[0];
+    } else if (output && typeof output.url === 'function') {
+      resultImageUrl = output.url();
+    } else {
+      resultImageUrl = output;
     }
 
-    if (!resultImageUrl) {
-      throw new Error("Kon geen geldige afbeelding-URL extraheren uit de AI-respons.");
+    if (!resultImageUrl || typeof resultImageUrl !== 'string') {
+      throw new Error("Kon geen geldige afbeeldings-URL genereren uit de AI-respons.");
     }
 
     return NextResponse.json({ 
       success: true, 
       imageUrl: resultImageUrl,
-      message: "Zonwering succesvol ingetekend door de AI!" 
+      message: "Visualisatie succesvol gegenereerd!" 
     });
 
   } catch (error: any) {
