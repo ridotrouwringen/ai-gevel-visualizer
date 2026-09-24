@@ -44,7 +44,7 @@ export function FacadeCanvas() {
   const imgRef = useRef<HTMLImageElement>(null);
 
   const [lineStart, setLineStart] = useState<{ x: number, y: number } | null>(null);
-  const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
+  const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);\n  const [segmenting, setSegmenting] = useState(false);\n  const [segmentationPreview, setSegmentationPreview] = useState<string | null>(null);\n  const [segmentError, setSegmentError] = useState<string | null>(null);
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -145,7 +145,7 @@ export function FacadeCanvas() {
     return () => window.removeEventListener('resize', drawCanvas);
   }, [masks, lineStart, mousePos, originalImage]);
 
-  const handleCanvasClick = (e: MouseEvent<HTMLCanvasElement>) => {
+  const handleCanvasClick = async (e: MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -260,9 +260,9 @@ export function FacadeCanvas() {
       
       <div className="absolute top-4 left-4 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
         <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
-        {activeProduct === 'KNIKARMSCHERMEN' 
+        {segmenting ? "Kozijn wordt door SAM 3 geselecteerd…" : segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN' 
           ? lineStart ? "Klik op het eindpunt van de gevel om de lijn te voltooien." : "Klik 2 punten op de muur om de breedte van het knikarmscherm te bepalen."
-          : "Klik op een raam om deze te markeren voor de AI-detectie. Klik nogmaals om te verwijderen."
+          : "Klik in het kozijn. SAM 3 bepaalt vervolgens de contour van het geselecteerde object."
         }
       </div>
 
