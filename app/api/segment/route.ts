@@ -14,6 +14,9 @@ type Box = {
   score?: number;
 };
 
+type Point2D = { x: number; y: number };
+type Detection = { box: Box; polygon?: Point2D[] };
+
 function isNumberArray(value: unknown, length: number) {
   return (
     Array.isArray(value) &&
@@ -38,6 +41,95 @@ function toBox(candidate: unknown): Box | null {
   }
 
   return null;
+}
+
+function toPoint(candidate: unknown): Point2D | null {
+  if (Array.isArray(candidate) && candidate.length >= 2) {
+    const x = candidate[0];
+    const y = candidate[1];
+    if (typeof x === "number" && typeof y === "number") return { x, y };
+  }
+
+  if (candidate && typeof candidate === "object") {
+    const object = candidate as Record<string, unknown>;
+    if (typeof object.x === "number" && typeof object.y === "number") {
+      return { x: object.x, y: object.y };
+    }
+  }
+
+  return null;
+}
+
+function toPolygon(candidate: unknown): Point2D[] | null {
+  if (!Array.isArray(candidate)) return null;
+
+  const points = candidate.map(toPoint).filter((p): p is Point2D => Boolean(p));
+  if (points.length < 3) return null;
+
+  // Only accept normalized polygons here. Pixel-space masks can be added later
+  // once their offset/size is available from the SAM result.
+  if (points.every((p) => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1)) {
+    return points;
+  }
+
+  return null;
+}
+
+function collectPolygons(value: unknown, output: Point2D[][] = []): Point2D[][] {
+  if (!value || typeof value !== "object") return output;
+
+  if (Array.isArray(value)) {
+    const polygon = toPolygon(value);
+    if (polygon) output.push(polygon);
+    else for (const item of value) collectPolygons(item, output);
+    return output;
+  }
+
+  const object = value as Record<string, unknown>;
+
+  for (const key of ["polygon", "polygons", "contour", "contours", "points"]) {
+    collectPolygons(object[key], output);
+  }
+
+  for (const key of ["segmentation", "mask", "masks"]) {
+    const candidate = object[key];
+    const polygon = toPolygon(candidate);
+    if (polygon) output.push(polygon);
+    else collectPolygons(candidate, output);
+  }
+
+  return output;
+}
+
+function convexHull(points: Point2D[]): Point2D[] {
+  if (points.length <= 3) return points;
+
+  const sorted = [...points].sort((a, b) =>
+    a.x === b.x ? a.y - b.y : a.x - b.x
+  );
+
+  const cross = (o: Point2D, a: Point2D, b: Point2D) =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+
+  const lower: Point2D[] = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], point) <= 0) {
+      lower.pop();
+    }
+    lower.push(point);
+  }
+
+  const upper: Point2D[] = [];
+  for (const point of [...sorted].reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], point) <= 0) {
+      upper.pop();
+    }
+    upper.push(point);
+  }
+
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
 }
 
 function collectBoxes(value: unknown, output: Box[] = []): Box[] {
@@ -146,7 +238,8 @@ function shouldBelongToSameKozijn(a: Box, b: Box) {
   return sameRow || sameColumn || overlapping;
 }
 
-function buildKozijnGroup(boxes: Box[], point: Point) {
+function buildKozijnGroup(detections: Detection[], point: Point) {
+  const boxes = detections.map((d) => d.box);
   if (!boxes.length) return null;
 
   // Normally the click lies inside the SAM box. On a mullion, edge, or a
@@ -219,8 +312,23 @@ function buildKozijnGroup(boxes: Box[], point: Point) {
   const top = Math.min(...edges.map((b) => b.top));
   const bottom = Math.max(...edges.map((b) => b.bottom));
 
+  const polygonPoints = [...selected]
+    .flatMap((index) => detections[index].polygon ?? [])
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+  const polygon =
+    polygonPoints.length >= 3
+      ? convexHull(polygonPoints)
+      : [
+          { x: left, y: top },
+          { x: right, y: top },
+          { x: right, y: bottom },
+          { x: left, y: bottom },
+        ];
+
   return {
     box: { left, top, right, bottom },
+    polygon,
     memberCount: group.length,
     memberBoxes: group,
     clickedIndex: seedIndex,
@@ -328,10 +436,31 @@ export async function POST(req: Request) {
     }
 
     const boxes = collectBoxes(results);
+    const polygons = collectPolygons(results);
+
+    // Keep the polygon path when SAM returns one. We associate each polygon
+    // with the nearest detection center; if no polygon is available, the
+    // existing bounding-box fallback remains active.
+    const detections: Detection[] = boxes.map((box) => {
+      const polygon = polygons
+        .map((candidate) => ({
+          candidate,
+          distance: Math.hypot(
+            candidate.reduce((sum, p) => sum + p.x, 0) / candidate.length - box.cx,
+            candidate.reduce((sum, p) => sum + p.y, 0) / candidate.length - box.cy
+          ),
+        }))
+        .filter((item) => item.distance <= 0.35)
+        .sort((a, b) => a.distance - b.distance)[0]?.candidate;
+
+      return { box, polygon };
+    });
 
     // Remove near-duplicate detections before grouping.
-    const uniqueBoxes = boxes.filter((box, index) => {
-      return !boxes.slice(0, index).some((other) => {
+    const uniqueDetections = detections.filter((detection, index) => {
+      const box = detection.box;
+      return !detections.slice(0, index).some((otherDetection) => {
+        const other = otherDetection.box;
         return (
           Math.abs(box.cx - other.cx) < 0.005 &&
           Math.abs(box.cy - other.cy) < 0.005 &&
@@ -341,7 +470,8 @@ export async function POST(req: Request) {
       });
     });
 
-    const kozijn = buildKozijnGroup(uniqueBoxes, { x, y });
+    const uniqueBoxes = uniqueDetections.map((detection) => detection.box);
+    const kozijn = buildKozijnGroup(uniqueDetections, { x, y });
 
     return NextResponse.json({
       ok: true,
@@ -354,6 +484,8 @@ export async function POST(req: Request) {
       resultUrl: resultUrls[0] ?? null,
       resultUrls,
       boxes: uniqueBoxes,
+      polygons,
+      kozijnPolygon: kozijn?.polygon ?? null,
       clickedBox:
         kozijn && uniqueBoxes[kozijn.clickedIndex]
           ? uniqueBoxes[kozijn.clickedIndex]
