@@ -119,18 +119,24 @@ function shouldBelongToSameKozijn(a: Box, b: Box) {
 
   const averageWidth = (a.w + b.w) / 2;
   const averageHeight = (a.h + b.h) / 2;
+  const heightRatio = Math.max(a.h, b.h) / Math.max(0.0001, Math.min(a.h, b.h));
+  const widthRatio = Math.max(a.w, b.w) / Math.max(0.0001, Math.min(a.w, b.w));
 
-  // Same row: useful for multi-pane kozijnen and dakkapellen.
+  // Same row: multi-pane kozijnen and dakkapellen often contain narrow panes
+  // with a relatively small gap between them. Use both relative and absolute
+  // tolerances so the grouping still works for small panes.
   const sameRow =
     verticalOverlap >= 0.45 &&
-    horizontalGap <= averageWidth * 0.35 &&
-    Math.abs(a.cy - b.cy) <= averageHeight * 0.45;
+    horizontalGap <= Math.max(averageWidth * 0.9, averageHeight * 0.5, 0.02) &&
+    Math.abs(a.cy - b.cy) <= Math.max(averageHeight * 0.65, 0.02) &&
+    heightRatio <= 2.5;
 
   // Same column: useful for stacked parts of one kozijn.
   const sameColumn =
     horizontalOverlap >= 0.45 &&
-    verticalGap <= averageHeight * 0.35 &&
-    Math.abs(a.cx - b.cx) <= averageWidth * 0.45;
+    verticalGap <= Math.max(averageHeight * 0.55, averageWidth * 0.5, 0.02) &&
+    Math.abs(a.cx - b.cx) <= Math.max(averageWidth * 0.65, 0.02) &&
+    widthRatio <= 2.5;
 
   // Overlapping/contained segments are very likely parts of the same physical
   // window assembly (for example an open window sash).
@@ -143,14 +149,48 @@ function shouldBelongToSameKozijn(a: Box, b: Box) {
 function buildKozijnGroup(boxes: Box[], point: Point) {
   if (!boxes.length) return null;
 
+  // Normally the click lies inside the SAM box. On a mullion, edge, or a
+  // slightly imperfect SAM detection it may land just outside it. In that
+  // case use the nearest box, but only when it is reasonably close to the
+  // click; this avoids selecting a random window elsewhere in the facade.
   const clickedIndex = boxes.findIndex((box) => {
     const b = boxEdges(box);
-    return point.x >= b.left && point.x <= b.right && point.y >= b.top && point.y <= b.bottom;
+    return (
+      point.x >= b.left &&
+      point.x <= b.right &&
+      point.y >= b.top &&
+      point.y <= b.bottom
+    );
   });
 
-  if (clickedIndex < 0) return null;
+  let seedIndex = clickedIndex;
 
-  const selected = new Set<number>([clickedIndex]);
+  if (seedIndex < 0) {
+    let nearestIndex = -1;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    boxes.forEach((box, index) => {
+      const b = boxEdges(box);
+      const dx =
+        point.x < b.left ? b.left - point.x : point.x > b.right ? point.x - b.right : 0;
+      const dy =
+        point.y < b.top ? b.top - point.y : point.y > b.bottom ? point.y - b.bottom : 0;
+      const distance = Math.hypot(dx, dy);
+
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    });
+
+    if (nearestIndex >= 0 && nearestDistance <= 0.06) {
+      seedIndex = nearestIndex;
+    }
+  }
+
+  if (seedIndex < 0) return null;
+
+  const selected = new Set<number>([seedIndex]);
   let changed = true;
 
   // Grow the group transitively. This allows A-B-C to become one kozijn even
@@ -183,7 +223,7 @@ function buildKozijnGroup(boxes: Box[], point: Point) {
     box: { left, top, right, bottom },
     memberCount: group.length,
     memberBoxes: group,
-    clickedIndex,
+    clickedIndex: seedIndex,
   };
 }
 
