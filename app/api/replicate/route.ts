@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { PRODUCTS_LIBRARY } from "@/lib/products";
 import {
   SYSTEM_COLORS,
@@ -171,16 +173,29 @@ export async function POST(req: Request) {
       );
     }
 
-    const origin = getPublicOrigin(req);
-
     // Image 1 = original facade. Images 2+ = one reference image per unique product type.
-    // FLUX.2 Dev supports multiple reference images in a single editing request.
+    // Do NOT use the Vercel public URL for the bundled product photos: Replicate may
+    // receive a deployment/protection HTML response instead of the JPEG. Read the
+    // static assets directly from the server bundle and send them as data URIs.
     const productTypes = PRODUCT_ORDER.filter((product) =>
       selections.some((selection) => selection.productType === product)
     );
 
-    const referenceImages = productTypes.map(
-      (product) => `${origin}${PRODUCTS_LIBRARY[product].referenceImage}`
+    const referenceImages = await Promise.all(
+      productTypes.map(async (product) => {
+        const relativePath = PRODUCTS_LIBRARY[product].referenceImage.replace(/^\//, "");
+        const filePath = path.join(process.cwd(), "public", relativePath);
+        const buffer = await readFile(filePath);
+        const extension = path.extname(filePath).toLowerCase();
+        const mimeType =
+          extension === ".png"
+            ? "image/png"
+            : extension === ".webp"
+              ? "image/webp"
+              : "image/jpeg";
+
+        return `data:${mimeType};base64,${buffer.toString("base64")}`;
+      })
     );
 
     const inputImages = [image, ...referenceImages];
