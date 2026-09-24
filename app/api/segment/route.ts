@@ -615,6 +615,8 @@ export async function POST(req: Request) {
     const body = await req.json();
     const image = body?.image;
     const point = body?.point;
+    const requestedImageWidth = typeof body?.imageWidth === "number" ? body.imageWidth : null;
+    const requestedImageHeight = typeof body?.imageHeight === "number" ? body.imageHeight : null;
 
     if (
       typeof image !== "string" ||
@@ -713,7 +715,11 @@ export async function POST(req: Request) {
     const boxes = collectBoxes(results);
     const polygons = collectPolygons(results);
     const maskCutouts = collectMaskCutouts(results);
-    const imageDimensions = getImageDimensions(image);
+    const imageDimensions = getImageDimensions(image) ?? (
+      requestedImageWidth && requestedImageHeight
+        ? { width: requestedImageWidth, height: requestedImageHeight }
+        : null
+    );
 
     // SAM3's offset_masks output is the authoritative geometry. Convert the
     // returned cut-out masks to normalized boundary polygons using their
