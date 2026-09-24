@@ -5,41 +5,115 @@ export const maxDuration = 120;
 const SAM3_VERSION =
   "vufinder/sam3:1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650";
 
-function findBoundingBox(value: unknown): [number, number, number, number] | null {
-  if (!value || typeof value !== "object") return null;
+type Point = { x: number; y: number };
+type Box = [number, number, number, number];
+
+function isNumberArray(value: unknown, length: number) {
+  return (
+    Array.isArray(value) &&
+    value.length >= length &&
+    value.slice(0, length).every((n) => typeof n === "number")
+  );
+}
+
+function collectBoxes(value: unknown, output: Box[] = []): Box[] {
+  if (!value || typeof value !== "object") return output;
 
   if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findBoundingBox(item);
-      if (found) return found;
-    }
-    return null;
+    for (const item of value) collectBoxes(item, output);
+    return output;
   }
 
   const object = value as Record<string, unknown>;
 
   for (const key of ["bbox", "box", "bounding_box", "boundingBox"]) {
     const candidate = object[key];
-    if (
-      Array.isArray(candidate) &&
-      candidate.length >= 4 &&
-      candidate.slice(0, 4).every((n) => typeof n === "number")
-    ) {
-      return [
+    if (isNumberArray(candidate, 4)) {
+      output.push([
         Number(candidate[0]),
         Number(candidate[1]),
         Number(candidate[2]),
         Number(candidate[3]),
-      ];
+      ]);
     }
   }
 
-  for (const key of ["boxes", "detections", "instances", "predictions", "results"]) {
-    const found = findBoundingBox(object[key]);
-    if (found) return found;
+  for (const key of [
+    "boxes",
+    "detections",
+    "instances",
+    "predictions",
+    "results",
+    "masks",
+  ]) {
+    collectBoxes(object[key], output);
   }
 
-  return null;
+  return output;
+}
+
+function pointInBox(point: Point, box: Box) {
+  const [a, b, c, d] = box;
+
+  // Support both xyxy and cxcywh style boxes.
+  const xyxyInside = point.x >= a && point.x <= c && point.y >= b && point.y <= d;
+  if (xyxyInside) return true;
+
+  const halfW = c / 2;
+  const halfH = d / 2;
+  return (
+    point.x >= a - halfW &&
+    point.x <= a + halfW &&
+    point.y >= b - halfH &&
+    point.y <= b + halfH
+  );
+}
+
+function boxArea(box: Box) {
+  const [a, b, c, d] = box;
+  return Math.abs(c * d) > 0 ? Math.abs(c * d) : Math.abs((c - a) * (d - b));
+}
+
+function normaliseBox(box: Box): Box {
+  const [a, b, c, d] = box;
+
+  // If this looks like normalized xyxy, keep it.
+  if (
+    a >= 0 &&
+    a <= 1 &&
+    b >= 0 &&
+    b <= 1 &&
+    c >= 0 &&
+    c <= 1 &&
+    d >= 0 &&
+    d <= 1 &&
+    c >= a &&
+    d >= b
+  ) {
+    return [a, b, c, d];
+  }
+
+  // Otherwise assume xyxy pixels and normalize by the largest plausible extent.
+  // The frontend primarily needs this as metadata; the actual mask remains the
+  // authoritative SAM output.
+  const maxValue = Math.max(Math.abs(a), Math.abs(b), Math.abs(c), Math.abs(d), 1);
+  return [a / maxValue, b / maxValue, c / maxValue, d / maxValue];
+}
+
+function buildKozijnBox(boxes: Box[], point: Point): Box | null {
+  if (!boxes.length) return null;
+
+  const candidates = boxes
+    .map(normaliseBox)
+    .filter((box) => pointInBox(point, box))
+    .sort((a, b) => boxArea(a) - boxArea(b));
+
+  if (!candidates.length) return null;
+
+  // The smallest box containing the click is the clicked visual segment.
+  // We expose it separately; the complete kozijn is reconstructed from the
+  // returned SAM masks in the next client-side step.
+  return candidates[0];
 }
 
 export async function POST(req: Request) {
@@ -84,10 +158,14 @@ export async function POST(req: Request) {
           image,
           prompts: [
             JSON.stringify({
+              // The user clicks inside a window. We explicitly ask SAM3 to
+              // interpret the clicked visual object as a complete window frame /
+              // window assembly rather than a single glass pane.
+              text: "window frame",
               positive_points: [[x, y]],
             }),
           ],
-          confidence_threshold: 0.5,
+          confidence_threshold: 0.35,
           visualize: true,
           offset_masks: true,
           split_output: true,
@@ -117,29 +195,46 @@ export async function POST(req: Request) {
     }
 
     const output = prediction?.output;
-    const visualizationUrl = output?.visualizations?.[0] ?? null;
-    const resultUrl = output?.results?.[0] ?? null;
+    const visualizationUrls: string[] = Array.isArray(output?.visualizations)
+      ? output.visualizations.filter((value: unknown): value is string => typeof value === "string")
+      : [];
+    const resultUrls: string[] = Array.isArray(output?.results)
+      ? output.results.filter((value: unknown): value is string => typeof value === "string")
+      : [];
 
-    let result: unknown = null;
-    if (resultUrl) {
+    const results: unknown[] = [];
+
+    for (const resultUrl of resultUrls) {
       try {
         const resultResponse = await fetch(resultUrl);
         if (resultResponse.ok) {
-          result = await resultResponse.json();
+          results.push(await resultResponse.json());
         }
       } catch {
-        // The visualization is still useful if the result JSON cannot be read.
+        // Keep processing the other result files.
       }
     }
 
-    const bbox = findBoundingBox(result);
+    const boxes = results.flatMap((result) => collectBoxes(result));
+    const clickedBox = buildKozijnBox(boxes, { x, y });
 
     return NextResponse.json({
       ok: true,
-      visualizationUrl,
-      resultUrl,
-      bbox,
+      prompt: {
+        text: "window frame",
+        point: { x, y },
+      },
+      visualizationUrl: visualizationUrls[0] ?? null,
+      visualizationUrls,
+      resultUrl: resultUrls[0] ?? null,
+      resultUrls,
+      boxes,
+      clickedBox,
       point: { x, y },
+      // The raw result URLs are deliberately returned so we can inspect and
+      // convert the actual SAM masks into one kozijn mask in the next step.
+      message:
+        "SAM3 heeft het klikpunt als window frame geïnterpreteerd. De volgende stap is het groeperen van bij elkaar horende ruiten tot één kozijncontour.",
     });
   } catch (error) {
     console.error("SAM 3 route error", error);
