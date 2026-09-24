@@ -18,7 +18,7 @@ type Point2D = { x: number; y: number };
 type Detection = { box: Box; polygon?: Point2D[] };
 
 type MaskCutout = {
-  data: number[] | Uint8Array | Uint8ClampedArray | boolean[];
+  data: (number | boolean)[] | Uint8Array | Uint8ClampedArray;
   width: number;
   height: number;
   offsetX: number;
@@ -94,7 +94,7 @@ function decodeBase64(value: string): Uint8Array | null {
   }
 }
 
-function flattenNumeric(value: unknown): number[] | boolean[] | null {
+function flattenNumeric(value: unknown): (number | boolean)[] | null {
   if (Array.isArray(value)) {
     const out: (number | boolean)[] = [];
     for (const item of value) {
