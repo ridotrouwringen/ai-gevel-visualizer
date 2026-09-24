@@ -201,7 +201,9 @@ export function FacadeCanvas() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             image: originalImage,
-            point: { x: clickX, y: clickY }
+            point: { x: clickX, y: clickY },
+            imageWidth: imgRef.current?.naturalWidth ?? null,
+            imageHeight: imgRef.current?.naturalHeight ?? null
           })
         });
 
