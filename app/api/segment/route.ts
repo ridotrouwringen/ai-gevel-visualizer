@@ -559,6 +559,26 @@ function buildKozijnGroup(detections: Detection[], point: Point) {
   };
 }
 
+function summarizeShape(value: unknown, depth = 0): unknown {
+  if (depth > 3) return typeof value;
+  if (Array.isArray(value)) {
+    return { type: "array", length: value.length, sample: value.length ? summarizeShape(value[0], depth + 1) : null };
+  }
+  if (!value || typeof value !== "object") return typeof value;
+  const object = value as Record<string, unknown>;
+  const summary: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(object)) {
+    if (/^(data|mask|cutout)$/i.test(key) && Array.isArray(item)) {
+      summary[key] = { type: "array", length: item.length };
+    } else if (/^(data|mask|cutout)$/i.test(key) && typeof item === "string") {
+      summary[key] = { type: "string", length: item.length };
+    } else {
+      summary[key] = summarizeShape(item, depth + 1);
+    }
+  }
+  return summary;
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -712,6 +732,13 @@ export async function POST(req: Request) {
     const uniqueBoxes = uniqueDetections.map((detection) => detection.box);
     const kozijn = buildKozijnGroup(uniqueDetections, { x, y });
 
+    // Temporary diagnostic information: if SAM3 returns a different JSON
+    // structure than expected, expose only its structure (never the image/mask
+    // contents) so we can adapt the parser to the real output.
+    const debugShape = boxes.length === 0
+      ? results.map((result) => summarizeShape(result))
+      : undefined;
+
     return NextResponse.json({
       ok: true,
       prompt: {
@@ -734,6 +761,7 @@ export async function POST(req: Request) {
       kozijnMemberCount: kozijn?.memberCount ?? 0,
       kozijnMemberBoxes: kozijn?.memberBoxes ?? [],
       point: { x, y },
+      debugShape,
     });
   } catch (error) {
     console.error("SAM 3 route error", error);
