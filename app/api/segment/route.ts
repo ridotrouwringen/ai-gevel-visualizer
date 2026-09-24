@@ -299,7 +299,7 @@ function maskToPolygon(mask: MaskCutout, imageWidth = 1, imageHeight = 1): Point
   return points.length >= 3 ? convexHull(points) : null;
 }
 
-function
+function collectPolygons(value: unknown, output: Point2D[][] = []): Point2D[][] {
   if (!value || typeof value !== "object") return output;
 
   if (Array.isArray(value)) {
