@@ -222,7 +222,7 @@ export async function POST(req: Request) {
           input: {
             prompt,
             input_images: inputImages,
-            go_fast: true,
+            // Avoid the FP8 fast path; it can fail inside FlashAttention with q_descale shape errors.\n            go_fast: false,
             aspect_ratio: "match_input_image",
             output_format: "jpg",
             output_quality: 90,
