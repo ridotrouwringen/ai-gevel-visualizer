@@ -203,14 +203,14 @@ export async function POST(req: Request) {
     const prompt = buildPrompt(selections);
 
     console.log("Replicate FLUX.2 request", {
-      model: "black-forest-labs/flux-2-dev",
+      model: "black-forest-labs/flux-2-max",
       selectionCount: selections.length,
       productTypes,
       referenceImages,
     });
 
     const response = await fetch(
-      "https://api.replicate.com/v1/models/black-forest-labs/flux-2-dev/predictions",
+      "https://api.replicate.com/v1/models/black-forest-labs/flux-2-max/predictions",
       {
         method: "POST",
         headers: {
@@ -270,7 +270,7 @@ export async function POST(req: Request) {
       success: true,
       imageUrl: resultImageUrl,
       predictionId: prediction.id,
-      model: "black-forest-labs/flux-2-dev",
+      model: "black-forest-labs/flux-2-max",
       selectionCount: selections.length,
       message: "Visualisatie succesvol gegenereerd.",
     });
