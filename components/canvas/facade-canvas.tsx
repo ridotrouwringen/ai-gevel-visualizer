@@ -215,15 +215,39 @@ export function FacadeCanvas() {
         // SAM3 vindt de afzonderlijke raam-/ruitsegmenten. De API groepeert
         // aangrenzende en overlappende segmenten daarna tot één kozijn.
         // We gebruiken de buitenste contour van die groep als plaatsingsgebied.
+        const kozijnPolygon = Array.isArray(data.kozijnPolygon)
+          ? data.kozijnPolygon
+              .filter(
+                (p: unknown) =>
+                  p &&
+                  typeof p === 'object' &&
+                  typeof (p as { x?: unknown }).x === 'number' &&
+                  typeof (p as { y?: unknown }).y === 'number'
+              )
+              .map((p: { x: number; y: number }) => ({
+                x: Math.max(0, Math.min(1, p.x)),
+                y: Math.max(0, Math.min(1, p.y))
+              }))
+          : [];
+
         const kozijnBox = data.kozijnBox;
 
-        if (
+        if (kozijnPolygon.length >= 3) {
+          addMask({
+            type: 'POLYGON',
+            coordinates: kozijnPolygon,
+            productType: activeProduct,
+            systemColor: activeSystemColor,
+            fabricColor: activeFabricColor || undefined
+          });
+        } else if (
           kozijnBox &&
           typeof kozijnBox.left === 'number' &&
           typeof kozijnBox.top === 'number' &&
           typeof kozijnBox.right === 'number' &&
           typeof kozijnBox.bottom === 'number'
         ) {
+          // Fallback for SAM results that do not expose polygon coordinates.
           addMask({
             type: 'POLYGON',
             coordinates: [
