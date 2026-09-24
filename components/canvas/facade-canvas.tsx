@@ -44,7 +44,10 @@ export function FacadeCanvas() {
   const imgRef = useRef<HTMLImageElement>(null);
 
   const [lineStart, setLineStart] = useState<{ x: number, y: number } | null>(null);
-  const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);\n  const [segmenting, setSegmenting] = useState(false);\n  const [segmentationPreview, setSegmentationPreview] = useState<string | null>(null);\n  const [segmentError, setSegmentError] = useState<string | null>(null);
+  const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
+  const [segmenting, setSegmenting] = useState(false);
+  const [segmentationPreview, setSegmentationPreview] = useState<string | null>(null);
+  const [segmentError, setSegmentError] = useState<string | null>(null);
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -189,22 +192,48 @@ export function FacadeCanvas() {
         setLineStart(null);
       }
     } else {
-      const width = 0.05;
-      const height = 0.05;
-      const dummyCoordinates = [
-        { x: clickX - width/2, y: clickY - height/2 },
-        { x: clickX + width/2, y: clickY - height/2 },
-        { x: clickX + width/2, y: clickY + height/2 },
-        { x: clickX - width/2, y: clickY + height/2 }
-      ];
+      setSegmenting(true);
+      setSegmentError(null);
+      setSegmentationPreview(null);
 
-      addMask({
-        type: 'POLYGON',
-        coordinates: dummyCoordinates,
-        productType: activeProduct,
-        systemColor: activeSystemColor,
-        fabricColor: activeFabricColor || undefined
-      });
+      try {
+        const response = await fetch('/api/segment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: originalImage,
+            point: { x: clickX, y: clickY }
+          })
+        });
+
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.error || 'SAM 3 segmentatie mislukt.');
+
+        if (data.visualizationUrl) {
+          setSegmentationPreview(data.visualizationUrl);
+        }
+
+        // Tijdelijke plaatsingsanker voor de bestaande FLUX-flow.
+        // De volgende stap koppelt het echte pixelmasker rechtstreeks aan de generatie.
+        const width = 0.05;
+        const height = 0.05;
+        addMask({
+          type: 'POLYGON',
+          coordinates: [
+            { x: clickX - width / 2, y: clickY - height / 2 },
+            { x: clickX + width / 2, y: clickY - height / 2 },
+            { x: clickX + width / 2, y: clickY + height / 2 },
+            { x: clickX - width / 2, y: clickY + height / 2 }
+          ],
+          productType: activeProduct,
+          systemColor: activeSystemColor,
+          fabricColor: activeFabricColor || undefined
+        });
+      } catch (error) {
+        setSegmentError(error instanceof Error ? error.message : 'SAM 3 segmentatie mislukt.');
+      } finally {
+        setSegmenting(false);
+      }
     }
   };
 
@@ -249,11 +278,18 @@ export function FacadeCanvas() {
           onLoad={drawCanvas}
           className="block max-w-full max-h-[80vh] object-contain shadow-md rounded-sm"
         />
+        {segmentationPreview && (
+          <img
+            src={segmentationPreview}
+            alt="SAM 3 selectiepreview"
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-50 rounded-sm"
+          />
+        )}
         <canvas 
           ref={canvasRef}
           onClick={handleCanvasClick}
           onMouseMove={handleMouseMove}
-          className={`absolute top-0 left-0 w-full h-full rounded-sm ${activeProduct === 'KNIKARMSCHERMEN' ? 'cursor-crosshair' : 'cursor-pointer'}`}
+          className={`absolute top-0 left-0 w-full h-full rounded-sm ${segmenting ? "Kozijn wordt door SAM 3 geselecteerd…" : segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN' ? 'cursor-crosshair' : 'cursor-pointer'}`}
           style={{ touchAction: 'none' }}
         />
       </div>
