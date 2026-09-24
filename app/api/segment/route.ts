@@ -17,6 +17,15 @@ type Box = {
 type Point2D = { x: number; y: number };
 type Detection = { box: Box; polygon?: Point2D[] };
 
+type MaskCutout = {
+  data: number[] | Uint8Array | Uint8ClampedArray | boolean[];
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+  channels?: number;
+};
+
 function isNumberArray(value: unknown, length: number) {
   return (
     Array.isArray(value) &&
@@ -75,7 +84,152 @@ function toPolygon(candidate: unknown): Point2D[] | null {
   return null;
 }
 
-function collectPolygons(value: unknown, output: Point2D[][] = []): Point2D[][] {
+function decodeBase64(value: string): Uint8Array | null {
+  try {
+    const normalized = value.includes(",") ? value.split(",").pop() ?? "" : value;
+    const binary = Buffer.from(normalized, "base64");
+    return new Uint8Array(binary);
+  } catch {
+    return null;
+  }
+}
+
+function collectMaskCutouts(value: unknown, output: MaskCutout[] = []): MaskCutout[] {
+  if (!value || typeof value !== "object") return output;
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectMaskCutouts(item, output);
+    return output;
+  }
+
+  const object = value as Record<string, unknown>;
+
+  const width =
+    typeof object.width === "number"
+      ? object.width
+      : typeof object.w === "number"
+        ? object.w
+        : null;
+  const height =
+    typeof object.height === "number"
+      ? object.height
+      : typeof object.h === "number"
+        ? object.h
+        : null;
+
+  const offset =
+    Array.isArray(object.offset) && object.offset.length >= 2
+      ? object.offset
+      : null;
+
+  const offsetX =
+    offset && typeof offset[0] === "number"
+      ? offset[0]
+      : typeof object.offset_x === "number"
+        ? object.offset_x
+        : typeof object.x === "number"
+          ? object.x
+          : null;
+
+  const offsetY =
+    offset && typeof offset[1] === "number"
+      ? offset[1]
+      : typeof object.offset_y === "number"
+        ? object.offset_y
+        : typeof object.y === "number"
+          ? object.y
+          : null;
+
+  const rawMask = object.mask ?? object.data ?? object.cutout;
+
+  if (
+    width &&
+    height &&
+    offsetX !== null &&
+    offsetY !== null &&
+    (Array.isArray(rawMask) || rawMask instanceof Uint8Array || rawMask instanceof Uint8ClampedArray)
+  ) {
+    const data =
+      Array.isArray(rawMask)
+        ? rawMask
+        : Array.from(rawMask);
+
+    if (data.length >= width * height) {
+      output.push({
+        data,
+        width,
+        height,
+        offsetX,
+        offsetY,
+        channels: typeof object.channels === "number" ? object.channels : undefined,
+      });
+    }
+  }
+
+  if (typeof rawMask === "string") {
+    const decoded = decodeBase64(rawMask);
+    if (decoded && width && height && offsetX !== null && offsetY !== null) {
+      output.push({
+        data: Array.from(decoded),
+        width,
+        height,
+        offsetX,
+        offsetY,
+        channels: typeof object.channels === "number" ? object.channels : undefined,
+      });
+    }
+  }
+
+  for (const key of ["mask", "masks", "offset_masks", "cutout", "cutouts", "results", "predictions"]) {
+    if (object[key] !== rawMask) collectMaskCutouts(object[key], output);
+  }
+
+  return output;
+}
+
+function maskToPolygon(mask: MaskCutout, imageWidth = 1, imageHeight = 1): Point2D[] | null {
+  const channels = Math.max(1, mask.channels ?? 1);
+  const points: Point2D[] = [];
+
+  const isOn = (index: number) => {
+    const value = mask.data[index];
+    return typeof value === "boolean" ? value : Number(value) > 0;
+  };
+
+  const idx = (x: number, y: number) => (y * mask.width + x) * channels;
+
+  // Sample the mask boundary rather than every pixel. This keeps the response
+  // small enough for the frontend while retaining the actual perspective.
+  const step = Math.max(1, Math.ceil(Math.max(mask.width, mask.height) / 180));
+
+  for (let y = 0; y < mask.height; y += step) {
+    for (let x = 0; x < mask.width; x += step) {
+      const current = isOn(idx(x, y));
+      if (!current) continue;
+
+      const edge =
+        x === 0 ||
+        y === 0 ||
+        x === mask.width - 1 ||
+        y === mask.height - 1 ||
+        !isOn(idx(Math.max(0, x - 1), y)) ||
+        !isOn(idx(Math.min(mask.width - 1, x + 1), y)) ||
+        !isOn(idx(x, Math.max(0, y - 1))) ||
+        !isOn(idx(x, Math.min(mask.height - 1, y + 1)));
+
+      if (edge) {
+        points.push({
+          x: (mask.offsetX + x) / imageWidth,
+          y: (mask.offsetY + y) / imageHeight,
+        });
+      }
+    }
+  }
+
+  return points.length >= 3 ? convexHull(points) : null;
+}
+
+function
   if (!value || typeof value !== "object") return output;
 
   if (Array.isArray(value)) {
@@ -437,12 +591,22 @@ export async function POST(req: Request) {
 
     const boxes = collectBoxes(results);
     const polygons = collectPolygons(results);
+    const maskCutouts = collectMaskCutouts(results);
 
-    // Keep the polygon path when SAM returns one. We associate each polygon
-    // with the nearest detection center; if no polygon is available, the
-    // existing bounding-box fallback remains active.
+    // SAM3's offset_masks output is the authoritative geometry. Convert the
+    // returned cut-out masks to normalized boundary polygons using their
+    // original-image pixel offsets. This preserves perspective and lets us
+    // combine a fixed pane and an opening sash into one physical window area.
+    const maskPolygons = maskCutouts
+      .map((mask) => maskToPolygon(mask, 1, 1))
+      .filter((polygon): polygon is Point2D[] => Boolean(polygon));
+
+    // Keep the legacy polygon path as a fallback for model/output variants
+    // that expose polygon points directly.
+    const allPolygons = maskPolygons.length ? maskPolygons : polygons;
+
     const detections: Detection[] = boxes.map((box) => {
-      const polygon = polygons
+      const polygon = allPolygons
         .map((candidate) => ({
           candidate,
           distance: Math.hypot(
@@ -484,7 +648,8 @@ export async function POST(req: Request) {
       resultUrl: resultUrls[0] ?? null,
       resultUrls,
       boxes: uniqueBoxes,
-      polygons,
+      polygons: allPolygons,
+      maskCount: maskCutouts.length,
       kozijnPolygon: kozijn?.polygon ?? null,
       clickedBox:
         kozijn && uniqueBoxes[kozijn.clickedIndex]
