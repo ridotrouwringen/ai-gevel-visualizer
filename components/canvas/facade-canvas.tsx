@@ -33,11 +33,11 @@ const isPointNearLine = (px: number, py: number, x1: number, y1: number, x2: num
 };
 
 export function FacadeCanvas() {
-  const { 
+  const {
     originalImage, setOriginalImage, clearMasks, masks, addMask, removeMask,
-    activeProduct, activeSystemColor, activeFabricColor 
+    activeProduct, activeSystemColor, activeFabricColor
   } = useVisualizerStore();
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -69,13 +69,13 @@ export function FacadeCanvas() {
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width;
     canvas.height = rect.height;
-    
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.lineCap = 'round';
 
     masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
-      
+
       if (mask.type === 'POLYGON') {
         ctx.beginPath();
         mask.coordinates.forEach((coord, i) => {
@@ -85,7 +85,7 @@ export function FacadeCanvas() {
           else ctx.lineTo(x, y);
         });
         ctx.closePath();
-        
+
         ctx.fillStyle = `${hexColor}66`;
         ctx.fill();
         ctx.strokeStyle = hexColor;
@@ -95,8 +95,8 @@ export function FacadeCanvas() {
         const midX = mask.coordinates.reduce((sum, c) => sum + c.x, 0) / mask.coordinates.length * canvas.width;
         const midY = mask.coordinates.reduce((sum, c) => sum + c.y, 0) / mask.coordinates.length * canvas.height;
         drawBadge(ctx, midX, midY, mask.sequenceNumber, hexColor);
-      } 
-      
+      }
+
       else if (mask.type === 'LINE' && mask.coordinates.length === 2) {
         const startX = mask.coordinates[0].x * canvas.width;
         const startY = mask.coordinates[0].y * canvas.height;
@@ -155,7 +155,7 @@ export function FacadeCanvas() {
     const rect = canvas.getBoundingClientRect();
     const pixelX = e.clientX - rect.left;
     const pixelY = e.clientY - rect.top;
-    
+
     const clickX = pixelX / rect.width;
     const clickY = pixelY / rect.height;
 
@@ -181,7 +181,6 @@ export function FacadeCanvas() {
       if (!lineStart) {
         setLineStart({ x: clickX, y: clickY });
       } else {
-        // FIX: Forceer de eind-Y om EXACT hetzelfde te zijn als de start-Y (Waterpas lijn)
         addMask({
           type: 'LINE',
           coordinates: [lineStart, { x: clickX, y: lineStart.y }],
@@ -213,22 +212,33 @@ export function FacadeCanvas() {
           setSegmentationPreview(data.visualizationUrl);
         }
 
-        // Tijdelijke plaatsingsanker voor de bestaande FLUX-flow.
-        // De volgende stap koppelt het echte pixelmasker rechtstreeks aan de generatie.
-        const width = 0.05;
-        const height = 0.05;
-        addMask({
-          type: 'POLYGON',
-          coordinates: [
-            { x: clickX - width / 2, y: clickY - height / 2 },
-            { x: clickX + width / 2, y: clickY - height / 2 },
-            { x: clickX + width / 2, y: clickY + height / 2 },
-            { x: clickX - width / 2, y: clickY + height / 2 }
-          ],
-          productType: activeProduct,
-          systemColor: activeSystemColor,
-          fabricColor: activeFabricColor || undefined
-        });
+        // SAM3 vindt de afzonderlijke raam-/ruitsegmenten. De API groepeert
+        // aangrenzende en overlappende segmenten daarna tot één kozijn.
+        // We gebruiken de buitenste contour van die groep als plaatsingsgebied.
+        const kozijnBox = data.kozijnBox;
+
+        if (
+          kozijnBox &&
+          typeof kozijnBox.left === 'number' &&
+          typeof kozijnBox.top === 'number' &&
+          typeof kozijnBox.right === 'number' &&
+          typeof kozijnBox.bottom === 'number'
+        ) {
+          addMask({
+            type: 'POLYGON',
+            coordinates: [
+              { x: Math.max(0, Math.min(1, kozijnBox.left)), y: Math.max(0, Math.min(1, kozijnBox.top)) },
+              { x: Math.max(0, Math.min(1, kozijnBox.right)), y: Math.max(0, Math.min(1, kozijnBox.top)) },
+              { x: Math.max(0, Math.min(1, kozijnBox.right)), y: Math.max(0, Math.min(1, kozijnBox.bottom)) },
+              { x: Math.max(0, Math.min(1, kozijnBox.left)), y: Math.max(0, Math.min(1, kozijnBox.bottom)) }
+            ],
+            productType: activeProduct,
+            systemColor: activeSystemColor,
+            fabricColor: activeFabricColor || undefined
+          });
+        } else {
+          throw new Error('SAM 3 kon geen kozijn rond de klik vinden.');
+        }
       } catch (error) {
         setSegmentError(error instanceof Error ? error.message : 'SAM 3 segmentatie mislukt.');
       } finally {
@@ -240,13 +250,12 @@ export function FacadeCanvas() {
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
     if (!lineStart || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    
+
     const currentX = (e.clientX - rect.left) / rect.width;
     let currentY = (e.clientY - rect.top) / rect.height;
 
-    // FIX: Vergrendel de muispreview-lijn ook op de horizontale as (waterpas)
     if (activeProduct === 'KNIKARMSCHERMEN') {
-        currentY = lineStart.y;
+      currentY = lineStart.y;
     }
 
     setMousePos({ x: currentX, y: currentY });
@@ -271,9 +280,9 @@ export function FacadeCanvas() {
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-gray-200 rounded-xl overflow-hidden shadow-inner p-4">
       <div className="relative inline-block max-w-full max-h-full" ref={containerRef}>
-        <img 
-          src={originalImage} 
-          alt="Gevel" 
+        <img
+          src={originalImage}
+          alt="Gevel"
           ref={imgRef}
           onLoad={drawCanvas}
           className="block max-w-full max-h-[80vh] object-contain shadow-md rounded-sm"
@@ -285,7 +294,7 @@ export function FacadeCanvas() {
             className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-50 rounded-sm"
           />
         )}
-        <canvas 
+        <canvas
           ref={canvasRef}
           onClick={handleCanvasClick}
           onMouseMove={handleMouseMove}
@@ -293,16 +302,16 @@ export function FacadeCanvas() {
           style={{ touchAction: 'none' }}
         />
       </div>
-      
+
       <div className="absolute top-4 left-4 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
         <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
-        {segmenting ? "Kozijn wordt door SAM 3 geselecteerd…" : segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN' 
+        {segmenting ? "Kozijn wordt door SAM 3 geselecteerd…" : segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
           ? lineStart ? "Klik op het eindpunt van de gevel om de lijn te voltooien." : "Klik 2 punten op de muur om de breedte van het knikarmscherm te bepalen."
-          : "Klik in het kozijn. SAM 3 bepaalt vervolgens de contour van het geselecteerde object."
+          : "Klik in het raam. De AI bepaalt welke delen samen één kozijn vormen."
         }
       </div>
 
-      <button 
+      <button
          onClick={() => { setOriginalImage(''); clearMasks(); }}
          className="absolute bottom-4 right-4 bg-white/90 hover:bg-white text-red-600 px-4 py-2 rounded-md text-sm shadow-md font-medium flex items-center gap-2 transition-colors"
       >
