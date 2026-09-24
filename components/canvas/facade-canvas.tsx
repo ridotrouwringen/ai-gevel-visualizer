@@ -261,7 +261,10 @@ export function FacadeCanvas() {
             fabricColor: activeFabricColor || undefined
           });
         } else {
-          throw new Error('SAM 3 kon geen kozijn rond de klik vinden.');
+          const debugText = data.debugShape
+            ? ` SAM3 output-structuur: ${JSON.stringify(data.debugShape).slice(0, 3500)}`
+            : '';
+          throw new Error('SAM 3 kon geen kozijn rond de klik vinden.' + debugText);
         }
       } catch (error) {
         setSegmentError(error instanceof Error ? error.message : 'SAM 3 segmentatie mislukt.');
