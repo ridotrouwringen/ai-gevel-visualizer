@@ -493,6 +493,57 @@ function shouldBelongToSameKozijn(a: Box, b: Box) {
   return sameRow || sameColumn || overlapping;
 }
 
+function pointInPolygon(point: Point2D, polygon: Point2D[]) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i];
+    const b = polygon[j];
+    const hit =
+      (a.y > point.y) !== (b.y > point.y) &&
+      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x;
+    if (hit) inside = !inside;
+  }
+  return inside;
+}
+
+function buildMaskKozijnGroup(
+  masks: { polygon: Point2D[] }[],
+  point: Point
+) {
+  if (!masks.length) return null;
+
+  const clicked = masks.findIndex((mask) => pointInPolygon(point, mask.polygon));
+
+  let seedIndex = clicked;
+  if (seedIndex < 0) {
+    let nearest = Number.POSITIVE_INFINITY;
+    masks.forEach((mask, index) => {
+      const cx = mask.polygon.reduce((s, p) => s + p.x, 0) / mask.polygon.length;
+      const cy = mask.polygon.reduce((s, p) => s + p.y, 0) / mask.polygon.length;
+      const distance = Math.hypot(point.x - cx, point.y - cy);
+      if (distance < nearest) {
+        nearest = distance;
+        seedIndex = index;
+      }
+    });
+    if (nearest > 0.12) return null;
+  }
+
+  const selected = masks[seedIndex];
+  return {
+    polygon: selected.polygon,
+    box: {
+      left: Math.min(...selected.polygon.map((p) => p.x)),
+      top: Math.min(...selected.polygon.map((p) => p.y)),
+      right: Math.max(...selected.polygon.map((p) => p.x)),
+      bottom: Math.max(...selected.polygon.map((p) => p.y)),
+    },
+    memberCount: 1,
+    memberBoxes: [],
+    clickedIndex: seedIndex,
+  };
+}
+
 function buildKozijnGroup(detections: Detection[], point: Point) {
   const boxes = detections.map((d) => d.box);
   if (!boxes.length) return null;
@@ -767,7 +818,9 @@ export async function POST(req: Request) {
     });
 
     const uniqueBoxes = uniqueDetections.map((detection) => detection.box);
-    const kozijn = buildKozijnGroup(uniqueDetections, { x, y });
+    const maskDetections = maskPolygons.map((polygon) => ({ polygon }));
+    const maskKozijn = buildMaskKozijnGroup(maskDetections, { x, y });
+    const kozijn = maskKozijn ?? buildKozijnGroup(uniqueDetections, { x, y });
 
     // Temporary diagnostic information: if SAM3 returns a different JSON
     // structure than expected, expose only its structure (never the image/mask
