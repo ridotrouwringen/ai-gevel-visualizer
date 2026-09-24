@@ -6,7 +6,13 @@ const SAM3_VERSION =
   "vufinder/sam3:1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650";
 
 type Point = { x: number; y: number };
-type Box = [number, number, number, number];
+type Box = {
+  cx: number;
+  cy: number;
+  w: number;
+  h: number;
+  score?: number;
+};
 
 function isNumberArray(value: unknown, length: number) {
   return (
@@ -14,6 +20,24 @@ function isNumberArray(value: unknown, length: number) {
     value.length >= length &&
     value.slice(0, length).every((n) => typeof n === "number")
   );
+}
+
+function toBox(candidate: unknown): Box | null {
+  if (!isNumberArray(candidate, 4)) return null;
+
+  const [a, b, c, d] = candidate.slice(0, 4) as number[];
+
+  // SAM3 uses normalized center_x, center_y, width, height for boxes.
+  if (
+    a >= 0 && a <= 1 &&
+    b >= 0 && b <= 1 &&
+    c > 0 && c <= 1 &&
+    d > 0 && d <= 1
+  ) {
+    return { cx: a, cy: b, w: c, h: d };
+  }
+
+  return null;
 }
 
 function collectBoxes(value: unknown, output: Box[] = []): Box[] {
@@ -28,23 +52,25 @@ function collectBoxes(value: unknown, output: Box[] = []): Box[] {
 
   for (const key of ["bbox", "box", "bounding_box", "boundingBox"]) {
     const candidate = object[key];
-    if (isNumberArray(candidate, 4)) {
-      output.push([
-        Number(candidate[0]),
-        Number(candidate[1]),
-        Number(candidate[2]),
-        Number(candidate[3]),
-      ]);
+    const box = toBox(candidate);
+    if (box) {
+      const score =
+        typeof object.score === "number"
+          ? object.score
+          : typeof object.confidence === "number"
+            ? object.confidence
+            : undefined;
+      output.push({ ...box, score });
     }
   }
 
   for (const key of [
     "boxes",
+    "bboxes",
     "detections",
     "instances",
     "predictions",
     "results",
-    "masks",
   ]) {
     collectBoxes(object[key], output);
   }
@@ -52,68 +78,113 @@ function collectBoxes(value: unknown, output: Box[] = []): Box[] {
   return output;
 }
 
-function pointInBox(point: Point, box: Box) {
-  const [a, b, c, d] = box;
-
-  // Support both xyxy and cxcywh style boxes.
-  const xyxyInside = point.x >= a && point.x <= c && point.y >= b && point.y <= d;
-  if (xyxyInside) return true;
-
-  const halfW = c / 2;
-  const halfH = d / 2;
-  return (
-    point.x >= a - halfW &&
-    point.x <= a + halfW &&
-    point.y >= b - halfH &&
-    point.y <= b + halfH
-  );
+function boxEdges(box: Box) {
+  return {
+    left: Math.max(0, box.cx - box.w / 2),
+    right: Math.min(1, box.cx + box.w / 2),
+    top: Math.max(0, box.cy - box.h / 2),
+    bottom: Math.min(1, box.cy + box.h / 2),
+  };
 }
 
-function boxArea(box: Box) {
-  const [a, b, c, d] = box;
-  return Math.abs(c * d) > 0 ? Math.abs(c * d) : Math.abs((c - a) * (d - b));
+function overlapLength(a1: number, a2: number, b1: number, b2: number) {
+  return Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
 }
 
-function normaliseBox(box: Box): Box {
-  const [a, b, c, d] = box;
+function shouldBelongToSameKozijn(a: Box, b: Box) {
+  const A = boxEdges(a);
+  const B = boxEdges(b);
 
-  // If this looks like normalized xyxy, keep it.
-  if (
-    a >= 0 &&
-    a <= 1 &&
-    b >= 0 &&
-    b <= 1 &&
-    c >= 0 &&
-    c <= 1 &&
-    d >= 0 &&
-    d <= 1 &&
-    c >= a &&
-    d >= b
-  ) {
-    return [a, b, c, d];
-  }
+  const verticalOverlap =
+    overlapLength(A.top, A.bottom, B.top, B.bottom) /
+    Math.max(0.0001, Math.min(a.h, b.h));
 
-  // Otherwise assume xyxy pixels and normalize by the largest plausible extent.
-  // The frontend primarily needs this as metadata; the actual mask remains the
-  // authoritative SAM output.
-  const maxValue = Math.max(Math.abs(a), Math.abs(b), Math.abs(c), Math.abs(d), 1);
-  return [a / maxValue, b / maxValue, c / maxValue, d / maxValue];
+  const horizontalOverlap =
+    overlapLength(A.left, A.right, B.left, B.right) /
+    Math.max(0.0001, Math.min(a.w, b.w));
+
+  const horizontalGap =
+    B.left > A.right
+      ? B.left - A.right
+      : A.left > B.right
+        ? A.left - B.right
+        : 0;
+
+  const verticalGap =
+    B.top > A.bottom
+      ? B.top - A.bottom
+      : A.top > B.bottom
+        ? A.top - B.bottom
+        : 0;
+
+  const averageWidth = (a.w + b.w) / 2;
+  const averageHeight = (a.h + b.h) / 2;
+
+  // Same row: useful for multi-pane kozijnen and dakkapellen.
+  const sameRow =
+    verticalOverlap >= 0.45 &&
+    horizontalGap <= averageWidth * 0.35 &&
+    Math.abs(a.cy - b.cy) <= averageHeight * 0.45;
+
+  // Same column: useful for stacked parts of one kozijn.
+  const sameColumn =
+    horizontalOverlap >= 0.45 &&
+    verticalGap <= averageHeight * 0.35 &&
+    Math.abs(a.cx - b.cx) <= averageWidth * 0.45;
+
+  // Overlapping/contained segments are very likely parts of the same physical
+  // window assembly (for example an open window sash).
+  const overlapping =
+    horizontalOverlap >= 0.35 && verticalOverlap >= 0.35;
+
+  return sameRow || sameColumn || overlapping;
 }
 
-function buildKozijnBox(boxes: Box[], point: Point): Box | null {
+function buildKozijnGroup(boxes: Box[], point: Point) {
   if (!boxes.length) return null;
 
-  const candidates = boxes
-    .map(normaliseBox)
-    .filter((box) => pointInBox(point, box))
-    .sort((a, b) => boxArea(a) - boxArea(b));
+  const clickedIndex = boxes.findIndex((box) => {
+    const b = boxEdges(box);
+    return point.x >= b.left && point.x <= b.right && point.y >= b.top && point.y <= b.bottom;
+  });
 
-  if (!candidates.length) return null;
+  if (clickedIndex < 0) return null;
 
-  // The smallest box containing the click is the clicked visual segment.
-  // We expose it separately; the complete kozijn is reconstructed from the
-  // returned SAM masks in the next client-side step.
-  return candidates[0];
+  const selected = new Set<number>([clickedIndex]);
+  let changed = true;
+
+  // Grow the group transitively. This allows A-B-C to become one kozijn even
+  // when A and C do not directly touch each other.
+  while (changed) {
+    changed = false;
+
+    for (let i = 0; i < boxes.length; i++) {
+      if (selected.has(i)) continue;
+
+      for (const selectedIndex of selected) {
+        if (shouldBelongToSameKozijn(boxes[i], boxes[selectedIndex])) {
+          selected.add(i);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  const group = [...selected].map((index) => boxes[index]);
+
+  const edges = group.map(boxEdges);
+  const left = Math.min(...edges.map((b) => b.left));
+  const right = Math.max(...edges.map((b) => b.right));
+  const top = Math.min(...edges.map((b) => b.top));
+  const bottom = Math.max(...edges.map((b) => b.bottom));
+
+  return {
+    box: { left, top, right, bottom },
+    memberCount: group.length,
+    memberBoxes: group,
+    clickedIndex,
+  };
 }
 
 export async function POST(req: Request) {
@@ -158,9 +229,6 @@ export async function POST(req: Request) {
           image,
           prompts: [
             JSON.stringify({
-              // The user clicks inside a window. We explicitly ask SAM3 to
-              // interpret the clicked visual object as a complete window frame /
-              // window assembly rather than a single glass pane.
               text: "window frame",
               positive_points: [[x, y]],
             }),
@@ -196,10 +264,14 @@ export async function POST(req: Request) {
 
     const output = prediction?.output;
     const visualizationUrls: string[] = Array.isArray(output?.visualizations)
-      ? output.visualizations.filter((value: unknown): value is string => typeof value === "string")
+      ? output.visualizations.filter(
+          (value: unknown): value is string => typeof value === "string"
+        )
       : [];
     const resultUrls: string[] = Array.isArray(output?.results)
-      ? output.results.filter((value: unknown): value is string => typeof value === "string")
+      ? output.results.filter(
+          (value: unknown): value is string => typeof value === "string"
+        )
       : [];
 
     const results: unknown[] = [];
@@ -211,12 +283,25 @@ export async function POST(req: Request) {
           results.push(await resultResponse.json());
         }
       } catch {
-        // Keep processing the other result files.
+        // Continue with the other result files.
       }
     }
 
-    const boxes = results.flatMap((result) => collectBoxes(result));
-    const clickedBox = buildKozijnBox(boxes, { x, y });
+    const boxes = collectBoxes(results);
+
+    // Remove near-duplicate detections before grouping.
+    const uniqueBoxes = boxes.filter((box, index) => {
+      return !boxes.slice(0, index).some((other) => {
+        return (
+          Math.abs(box.cx - other.cx) < 0.005 &&
+          Math.abs(box.cy - other.cy) < 0.005 &&
+          Math.abs(box.w - other.w) < 0.005 &&
+          Math.abs(box.h - other.h) < 0.005
+        );
+      });
+    });
+
+    const kozijn = buildKozijnGroup(uniqueBoxes, { x, y });
 
     return NextResponse.json({
       ok: true,
@@ -228,13 +313,15 @@ export async function POST(req: Request) {
       visualizationUrls,
       resultUrl: resultUrls[0] ?? null,
       resultUrls,
-      boxes,
-      clickedBox,
+      boxes: uniqueBoxes,
+      clickedBox:
+        kozijn && uniqueBoxes[kozijn.clickedIndex]
+          ? uniqueBoxes[kozijn.clickedIndex]
+          : null,
+      kozijnBox: kozijn?.box ?? null,
+      kozijnMemberCount: kozijn?.memberCount ?? 0,
+      kozijnMemberBoxes: kozijn?.memberBoxes ?? [],
       point: { x, y },
-      // The raw result URLs are deliberately returned so we can inspect and
-      // convert the actual SAM masks into one kozijn mask in the next step.
-      message:
-        "SAM3 heeft het klikpunt als window frame geïnterpreteerd. De volgende stap is het groeperen van bij elkaar horende ruiten tot één kozijncontour.",
     });
   } catch (error) {
     console.error("SAM 3 route error", error);
