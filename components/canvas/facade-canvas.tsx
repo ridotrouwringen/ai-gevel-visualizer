@@ -289,7 +289,7 @@ export function FacadeCanvas() {
           ref={canvasRef}
           onClick={handleCanvasClick}
           onMouseMove={handleMouseMove}
-          className={`absolute top-0 left-0 w-full h-full rounded-sm ${segmenting ? "Kozijn wordt door SAM 3 geselecteerd…" : segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN' ? 'cursor-crosshair' : 'cursor-pointer'}`}
+          className={`absolute top-0 left-0 w-full h-full rounded-sm ${activeProduct === 'KNIKARMSCHERMEN' ? 'cursor-crosshair' : 'cursor-pointer'}`}
           style={{ touchAction: 'none' }}
         />
       </div>
