@@ -94,6 +94,74 @@ function decodeBase64(value: string): Uint8Array | null {
   }
 }
 
+function flattenNumeric(value: unknown): number[] | boolean[] | null {
+  if (Array.isArray(value)) {
+    const out: (number | boolean)[] = [];
+    for (const item of value) {
+      const nested = flattenNumeric(item);
+      if (nested) out.push(...nested);
+      else if (typeof item === "number" || typeof item === "boolean") out.push(item);
+      else return null;
+    }
+    return out;
+  }
+  return null;
+}
+
+function getImageDimensions(dataUrl: string) {
+  try {
+    const match = dataUrl.match(/^data:image\/(png|jpeg|jpg|webp);base64,(.+)$/i);
+    if (!match) return null;
+    const bytes = Buffer.from(match[2], "base64");
+    const type = match[1].toLowerCase();
+
+    if (type === "png") {
+      if (bytes.length >= 24) {
+        return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+      }
+    }
+
+    if (type === "webp" && bytes.toString("ascii", 0, 4) === "RIFF") {
+      const format = bytes.toString("ascii", 8, 12);
+      if (format === "WEBP" && bytes.length >= 30) {
+        const chunk = bytes.toString("ascii", 12, 16);
+        if (chunk === "VP8X") {
+          const width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
+          const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+          return { width, height };
+        }
+      }
+    }
+
+    if (type === "jpeg" || type === "jpg") {
+      let offset = 2;
+      while (offset + 9 < bytes.length) {
+        if (bytes[offset] !== 0xff) {
+          offset++;
+          continue;
+        }
+        const marker = bytes[offset + 1];
+        const length = bytes.readUInt16BE(offset + 2);
+        if (
+          marker >= 0xc0 &&
+          marker <= 0xc3 &&
+          offset + 8 < bytes.length
+        ) {
+          return {
+            height: bytes.readUInt16BE(offset + 5),
+            width: bytes.readUInt16BE(offset + 7),
+          };
+        }
+        offset += 2 + length;
+      }
+    }
+  } catch {
+    // Fall back to normalized/legacy geometry below.
+  }
+
+  return null;
+}
+
 function collectMaskCutouts(value: unknown, output: MaskCutout[] = []): MaskCutout[] {
   if (!value || typeof value !== "object") return output;
 
@@ -151,8 +219,10 @@ function collectMaskCutouts(value: unknown, output: MaskCutout[] = []): MaskCuto
   ) {
     const data =
       Array.isArray(rawMask)
-        ? rawMask
+        ? flattenNumeric(rawMask)
         : Array.from(rawMask);
+
+    if (!data) return output;
 
     if (data.length >= width * height) {
       output.push({
@@ -592,13 +662,18 @@ export async function POST(req: Request) {
     const boxes = collectBoxes(results);
     const polygons = collectPolygons(results);
     const maskCutouts = collectMaskCutouts(results);
+    const imageDimensions = getImageDimensions(image);
 
     // SAM3's offset_masks output is the authoritative geometry. Convert the
     // returned cut-out masks to normalized boundary polygons using their
     // original-image pixel offsets. This preserves perspective and lets us
     // combine a fixed pane and an opening sash into one physical window area.
     const maskPolygons = maskCutouts
-      .map((mask) => maskToPolygon(mask, 1, 1))
+.map((mask) =>
+        imageDimensions
+          ? maskToPolygon(mask, imageDimensions.width, imageDimensions.height)
+          : null
+      )
       .filter((polygon): polygon is Point2D[] => Boolean(polygon));
 
     // Keep the legacy polygon path as a fallback for model/output variants
