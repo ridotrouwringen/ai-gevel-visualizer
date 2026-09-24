@@ -172,6 +172,37 @@ function collectMaskCutouts(value: unknown, output: MaskCutout[] = []): MaskCuto
 
   const object = value as Record<string, unknown>;
 
+  // SAM3's current output uses parallel arrays:
+  // masks: [N][height][width], masks_offset: [N][x,y].
+  // Convert those directly into our internal cutout representation.
+  if (Array.isArray(object.masks) && Array.isArray(object.masks_offset)) {
+    const masks = object.masks;
+    const offsets = object.masks_offset;
+    for (let i = 0; i < masks.length; i++) {
+      const raw = masks[i];
+      const offset = offsets[i];
+      if (!Array.isArray(raw) || !raw.length || !Array.isArray(offset) || offset.length < 2) continue;
+
+      const height = raw.length;
+      const firstRow = raw[0];
+      const width = Array.isArray(firstRow) ? firstRow.length : 0;
+      const offsetX = typeof offset[0] === "number" ? offset[0] : null;
+      const offsetY = typeof offset[1] === "number" ? offset[1] : null;
+      if (!width || offsetX === null || offsetY === null) continue;
+
+      const data = flattenNumeric(raw);
+      if (!data || data.length < width * height) continue;
+
+      output.push({
+        data,
+        width,
+        height,
+        offsetX,
+        offsetY,
+      });
+    }
+  }
+
   const width =
     typeof object.width === "number"
       ? object.width
@@ -689,7 +720,7 @@ export async function POST(req: Request) {
     // original-image pixel offsets. This preserves perspective and lets us
     // combine a fixed pane and an opening sash into one physical window area.
     const maskPolygons = maskCutouts
-.map((mask) =>
+      .map((mask) =>
         imageDimensions
           ? maskToPolygon(mask, imageDimensions.width, imageDimensions.height)
           : null
