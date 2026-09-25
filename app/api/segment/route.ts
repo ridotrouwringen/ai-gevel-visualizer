@@ -327,7 +327,7 @@ function maskToPolygon(mask: MaskCutout, imageWidth = 1, imageHeight = 1): Point
     }
   }
 
-  return points.length >= 3 ? convexHull(points) : null;
+  return points.length >= 3 ? points : null;
 }
 
 function collectPolygons(value: unknown, output: Point2D[][] = []): Point2D[][] {
@@ -354,6 +354,41 @@ function collectPolygons(value: unknown, output: Point2D[][] = []): Point2D[][] 
   }
 
   return output;
+}
+
+function outerBoundaryPolygon(points: Point2D[]): Point2D[] {
+  if (points.length <= 3) return points;
+
+  // When several SAM masks belong to one dragged selection, do not use a
+  // convex hull: that hull cuts across recesses/gaps and makes the selected
+  // kozijn visibly too large. Sample the outermost mask boundary by angle
+  // around the combined center. This keeps the silhouette much closer to the
+  // actual outer kozijn while remaining compact enough for the frontend.
+  const center = {
+    x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+    y: points.reduce((sum, p) => sum + p.y, 0) / points.length
+  };
+
+  const bins = 96;
+  const bucketed: Array<{ point: Point2D; distance: number } | null> =
+    Array.from({ length: bins }, () => null);
+
+  for (const point of points) {
+    const angle = Math.atan2(point.y - center.y, point.x - center.x);
+    const normalized = (angle + Math.PI) / (2 * Math.PI);
+    const index = Math.min(bins - 1, Math.floor(normalized * bins));
+    const distance = Math.hypot(point.x - center.x, point.y - center.y);
+
+    if (!bucketed[index] || distance > bucketed[index]!.distance) {
+      bucketed[index] = { point, distance };
+    }
+  }
+
+  const result = bucketed
+    .filter((item): item is { point: Point2D; distance: number } => Boolean(item))
+    .map((item) => item.point);
+
+  return result.length >= 3 ? result : points;
 }
 
 function convexHull(points: Point2D[]): Point2D[] {
@@ -610,7 +645,10 @@ function buildMaskKozijnGroup(
     // The hull is intentionally used here: when the user drags over a
     // dakkapel containing three panes, the result becomes one installation
     // area rather than three separate product areas.
-    polygon = convexHull(selectedPolygons.flat());
+    polygon =
+      selectedPolygons.length === 1
+        ? selectedPolygons[0]
+        : outerBoundaryPolygon(selectedPolygons.flat());
   }
 
   if (!polygon || polygon.length < 3) {
