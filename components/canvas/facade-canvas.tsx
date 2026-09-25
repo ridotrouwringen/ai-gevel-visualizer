@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, ChangeEvent, useEffect, useState, MouseEvent } from 'react';
+import { useRef, ChangeEvent, useEffect, useState, PointerEvent } from 'react';
 import { useVisualizerStore } from '@/store/visualizer-store';
 import { UploadCloud, Trash2, MousePointer2 } from 'lucide-react';
 import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, ProductType, SystemColor, FabricColor } from '@/types/visualizer';
@@ -43,8 +43,8 @@ export function FacadeCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  const [lineStart, setLineStart] = useState<{ x: number, y: number } | null>(null);
-  const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
+  const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
+  const [dragCurrent, setDragCurrent] = useState<{ x: number, y: number } | null>(null);
   const [segmenting, setSegmenting] = useState(false);
   const [segmentationPreview, setSegmentationPreview] = useState<string | null>(null);
   const [segmentError, setSegmentError] = useState<string | null>(null);
@@ -114,15 +114,26 @@ export function FacadeCanvas() {
       }
     });
 
-    if (lineStart && mousePos) {
+    if (dragStart && dragCurrent) {
       const hexColor = getColorHex(activeFabricColor || activeSystemColor);
-      ctx.beginPath();
-      ctx.moveTo(lineStart.x * canvas.width, lineStart.y * canvas.height);
-      ctx.lineTo(mousePos.x * canvas.width, mousePos.y * canvas.height);
-      ctx.strokeStyle = `${hexColor}AA`;
-      ctx.setLineDash([5, 5]);
+      const left = Math.min(dragStart.x, dragCurrent.x) * canvas.width;
+      const right = Math.max(dragStart.x, dragCurrent.x) * canvas.width;
+      const top = Math.min(dragStart.y, dragCurrent.y) * canvas.height;
+      const bottom = Math.max(dragStart.y, dragCurrent.y) * canvas.height;
+
+      ctx.strokeStyle = `${hexColor}DD`;
+      ctx.setLineDash([7, 5]);
       ctx.lineWidth = 3;
-      ctx.stroke();
+
+      if (activeProduct === 'KNIKARMSCHERMEN') {
+        ctx.beginPath();
+        ctx.moveTo(dragStart.x * canvas.width, dragStart.y * canvas.height);
+        ctx.lineTo(dragCurrent.x * canvas.width, dragStart.y * canvas.height);
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(left, top, right - left, bottom - top);
+      }
+
       ctx.setLineDash([]);
     }
   };
@@ -146,148 +157,157 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, lineStart, mousePos, originalImage]);
+  }, [masks, dragStart, dragCurrent, originalImage]);
 
-  const handleCanvasClick = async (e: MouseEvent<HTMLCanvasElement>) => {
+  const getPointerPosition = (e: PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-
+    if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
-    const pixelX = e.clientX - rect.left;
-    const pixelY = e.clientY - rect.top;
 
-    const clickX = pixelX / rect.width;
-    const clickY = pixelY / rect.height;
+    return {
+      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+    };
+  };
 
-    for (let i = masks.length - 1; i >= 0; i--) {
-      const mask = masks[i];
-      if (mask.type === 'POLYGON') {
-        const pixelCoords = mask.coordinates.map(c => ({ x: c.x * rect.width, y: c.y * rect.height }));
-        if (isPointInPolygon({ x: pixelX, y: pixelY }, pixelCoords)) {
-          removeMask(mask.id);
-          return;
-        }
-      } else if (mask.type === 'LINE' && mask.coordinates.length === 2) {
-        const p1 = { x: mask.coordinates[0].x * rect.width, y: mask.coordinates[0].y * rect.height };
-        const p2 = { x: mask.coordinates[1].x * rect.width, y: mask.coordinates[1].y * rect.height };
-        if (isPointNearLine(pixelX, pixelY, p1.x, p1.y, p2.x, p2.y, 15)) {
-          removeMask(mask.id);
-          return;
-        }
-      }
+  const handlePointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
+    const position = getPointerPosition(e);
+    if (!position) return;
+
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragStart(position);
+    setDragCurrent(position);
+    setSegmentError(null);
+  };
+
+  const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
+    if (!dragStart) return;
+    const position = getPointerPosition(e);
+    if (!position) return;
+    setDragCurrent(position);
+  };
+
+  const handlePointerUp = async (e: PointerEvent<HTMLCanvasElement>) => {
+    if (!dragStart) return;
+
+    const end = getPointerPosition(e);
+    if (!end) {
+      setDragStart(null);
+      setDragCurrent(null);
+      return;
     }
 
+    const start = dragStart;
+    setDragStart(null);
+    setDragCurrent(null);
+
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
+
+    // A tiny accidental touch is ignored. Everything else is selected by
+    // dragging, so desktop and mobile use exactly the same interaction.
+    if (Math.max(width, height) < 0.025) return;
+
     if (activeProduct === 'KNIKARMSCHERMEN') {
-      if (!lineStart) {
-        setLineStart({ x: clickX, y: clickY });
-      } else {
+      const y = start.y;
+      addMask({
+        type: 'LINE',
+        coordinates: [
+          { x: Math.min(start.x, end.x), y },
+          { x: Math.max(start.x, end.x), y }
+        ],
+        productType: activeProduct,
+        systemColor: activeSystemColor,
+        fabricColor: activeFabricColor || undefined
+      });
+      return;
+    }
+
+    setSegmenting(true);
+    setSegmentError(null);
+    setSegmentationPreview(null);
+
+    const selection = {
+      left: Math.min(start.x, end.x),
+      top: Math.min(start.y, end.y),
+      right: Math.max(start.x, end.x),
+      bottom: Math.max(start.y, end.y)
+    };
+
+    try {
+      const response = await fetch('/api/segment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: originalImage,
+          selection,
+          imageWidth: imgRef.current?.naturalWidth ?? null,
+          imageHeight: imgRef.current?.naturalHeight ?? null
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'SAM 3 selectie mislukt.');
+
+      if (data.visualizationUrl) {
+        setSegmentationPreview(data.visualizationUrl);
+      }
+
+      const kozijnPolygon = Array.isArray(data.kozijnPolygon)
+        ? data.kozijnPolygon
+            .filter(
+              (p: unknown) =>
+                p &&
+                typeof p === 'object' &&
+                typeof (p as { x?: unknown }).x === 'number' &&
+                typeof (p as { y?: unknown }).y === 'number'
+            )
+            .map((p: { x: number; y: number }) => ({
+              x: Math.max(0, Math.min(1, p.x)),
+              y: Math.max(0, Math.min(1, p.y))
+            }))
+        : [];
+
+      const kozijnBox = data.kozijnBox;
+
+      if (kozijnPolygon.length >= 3) {
         addMask({
-          type: 'LINE',
-          coordinates: [lineStart, { x: clickX, y: lineStart.y }],
+          type: 'POLYGON',
+          coordinates: kozijnPolygon,
           productType: activeProduct,
           systemColor: activeSystemColor,
           fabricColor: activeFabricColor || undefined
         });
-        setLineStart(null);
-      }
-    } else {
-      setSegmenting(true);
-      setSegmentError(null);
-      setSegmentationPreview(null);
-
-      try {
-        const response = await fetch('/api/segment', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image: originalImage,
-            point: { x: clickX, y: clickY },
-            imageWidth: imgRef.current?.naturalWidth ?? null,
-            imageHeight: imgRef.current?.naturalHeight ?? null
-          })
+      } else if (
+        kozijnBox &&
+        typeof kozijnBox.left === 'number' &&
+        typeof kozijnBox.top === 'number' &&
+        typeof kozijnBox.right === 'number' &&
+        typeof kozijnBox.bottom === 'number'
+      ) {
+        addMask({
+          type: 'POLYGON',
+          coordinates: [
+            { x: Math.max(0, Math.min(1, kozijnBox.left)), y: Math.max(0, Math.min(1, kozijnBox.top)) },
+            { x: Math.max(0, Math.min(1, kozijnBox.right)), y: Math.max(0, Math.min(1, kozijnBox.top)) },
+            { x: Math.max(0, Math.min(1, kozijnBox.right)), y: Math.max(0, Math.min(1, kozijnBox.bottom)) },
+            { x: Math.max(0, Math.min(1, kozijnBox.left)), y: Math.max(0, Math.min(1, kozijnBox.bottom)) }
+          ],
+          productType: activeProduct,
+          systemColor: activeSystemColor,
+          fabricColor: activeFabricColor || undefined
         });
-
-        const data = await response.json();
-        if (!response.ok) throw new Error(data?.error || 'SAM 3 segmentatie mislukt.');
-
-        if (data.visualizationUrl) {
-          setSegmentationPreview(data.visualizationUrl);
-        }
-
-        // SAM3 vindt de afzonderlijke raam-/ruitsegmenten. De API groepeert
-        // aangrenzende en overlappende segmenten daarna tot één kozijn.
-        // We gebruiken de buitenste contour van die groep als plaatsingsgebied.
-        const kozijnPolygon = Array.isArray(data.kozijnPolygon)
-          ? data.kozijnPolygon
-              .filter(
-                (p: unknown) =>
-                  p &&
-                  typeof p === 'object' &&
-                  typeof (p as { x?: unknown }).x === 'number' &&
-                  typeof (p as { y?: unknown }).y === 'number'
-              )
-              .map((p: { x: number; y: number }) => ({
-                x: Math.max(0, Math.min(1, p.x)),
-                y: Math.max(0, Math.min(1, p.y))
-              }))
-          : [];
-
-        const kozijnBox = data.kozijnBox;
-
-        if (kozijnPolygon.length >= 3) {
-          addMask({
-            type: 'POLYGON',
-            coordinates: kozijnPolygon,
-            productType: activeProduct,
-            systemColor: activeSystemColor,
-            fabricColor: activeFabricColor || undefined
-          });
-        } else if (
-          kozijnBox &&
-          typeof kozijnBox.left === 'number' &&
-          typeof kozijnBox.top === 'number' &&
-          typeof kozijnBox.right === 'number' &&
-          typeof kozijnBox.bottom === 'number'
-        ) {
-          // Fallback for SAM results that do not expose polygon coordinates.
-          addMask({
-            type: 'POLYGON',
-            coordinates: [
-              { x: Math.max(0, Math.min(1, kozijnBox.left)), y: Math.max(0, Math.min(1, kozijnBox.top)) },
-              { x: Math.max(0, Math.min(1, kozijnBox.right)), y: Math.max(0, Math.min(1, kozijnBox.top)) },
-              { x: Math.max(0, Math.min(1, kozijnBox.right)), y: Math.max(0, Math.min(1, kozijnBox.bottom)) },
-              { x: Math.max(0, Math.min(1, kozijnBox.left)), y: Math.max(0, Math.min(1, kozijnBox.bottom)) }
-            ],
-            productType: activeProduct,
-            systemColor: activeSystemColor,
-            fabricColor: activeFabricColor || undefined
-          });
-        } else {
-          const debugText = data.debugShape
-            ? ` SAM3 output-structuur: ${JSON.stringify(data.debugShape).slice(0, 3500)}`
-            : '';
-          throw new Error('SAM 3 kon geen kozijn rond de klik vinden.' + debugText);
-        }
-      } catch (error) {
-        setSegmentError(error instanceof Error ? error.message : 'SAM 3 segmentatie mislukt.');
-      } finally {
-        setSegmenting(false);
+      } else {
+        const debugText = data.debugShape
+          ? ` SAM3 output-structuur: ${JSON.stringify(data.debugShape).slice(0, 3500)}`
+          : '';
+        throw new Error('SAM 3 kon geen selectie uit de sleepactie halen.' + debugText);
       }
+    } catch (error) {
+      setSegmentError(error instanceof Error ? error.message : 'SAM 3 selectie mislukt.');
+    } finally {
+      setSegmenting(false);
     }
-  };
-
-  const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
-    if (!lineStart || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-
-    const currentX = (e.clientX - rect.left) / rect.width;
-    let currentY = (e.clientY - rect.top) / rect.height;
-
-    if (activeProduct === 'KNIKARMSCHERMEN') {
-      currentY = lineStart.y;
-    }
-
-    setMousePos({ x: currentX, y: currentY });
   };
 
   if (!originalImage) {
@@ -325,8 +345,13 @@ export function FacadeCanvas() {
         )}
         <canvas
           ref={canvasRef}
-          onClick={handleCanvasClick}
-          onMouseMove={handleMouseMove}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={() => {
+            setDragStart(null);
+            setDragCurrent(null);
+          }}
           className={`absolute top-0 left-0 w-full h-full rounded-sm ${activeProduct === 'KNIKARMSCHERMEN' ? 'cursor-crosshair' : 'cursor-pointer'}`}
           style={{ touchAction: 'none' }}
         />
@@ -334,9 +359,9 @@ export function FacadeCanvas() {
 
       <div className="absolute top-4 left-4 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
         <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
-        {segmenting ? "Kozijn wordt door SAM 3 geselecteerd…" : segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
-          ? lineStart ? "Klik op het eindpunt van de gevel om de lijn te voltooien." : "Klik 2 punten op de muur om de breedte van het knikarmscherm te bepalen."
-          : "Klik in het raam. De AI bepaalt welke delen samen één kozijn vormen."
+        {segmenting ? "Selectie wordt door SAM 3 verwerkt…" : segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
+          ? "Sleep over de gewenste breedte van het knikarmscherm."
+          : "Sleep over het raam of kozijn dat je wilt selecteren. Meerdere ramen? Sleep over het hele gebied."
         }
       </div>
 
