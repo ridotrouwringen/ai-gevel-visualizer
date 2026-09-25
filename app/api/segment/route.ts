@@ -947,7 +947,12 @@ export async function POST(req: Request) {
           imageDimensions.height
         )
       : null;
-    const kozijn = maskKozijn ?? buildKozijnGroup(uniqueDetections, { x, y });
+    const kozijn =
+      maskKozijn ??
+      buildKozijnGroup(uniqueDetections, {
+        x: (left + right) / 2,
+        y: (top + bottom) / 2
+      });
 
     // Temporary diagnostic information: if SAM3 returns a different JSON
     // structure than expected, expose only its structure (never the image/mask
