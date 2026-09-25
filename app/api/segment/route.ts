@@ -551,9 +551,9 @@ function buildMaskKozijnGroup(
 ) {
   if (!masks.length) return null;
 
-  // SAM3 returns masks, boxes and scores as parallel arrays. Keep the mask
-  // index aligned with the corresponding box; never compact the polygon array,
-  // otherwise a missing/empty polygon shifts every following mask by one.
+  // A sun screen or rolluik is mounted on the physical window assembly, not
+  // on an individual glass pane. For a dakkapel with 3 adjacent panes, a
+  // click in any one pane therefore has to select the complete assembly.
   const containing: number[] = [];
 
   masks.forEach((mask, index) => {
@@ -571,10 +571,9 @@ function buildMaskKozijnGroup(
 
   let seedIndex = containing[0] ?? -1;
 
-  // If several masks/boxes contain the click, choose the smallest spatial
-  // region. This avoids accidentally selecting the whole outer dakkapel when
-  // the user clicked one of its panes.
   if (containing.length > 1) {
+    // Prefer the smallest box at the click as the pane/sash seed. We then
+    // expand from that seed to the complete physical window assembly.
     seedIndex = containing.reduce((best, index) => {
       const bestArea = boxes[best] ? boxes[best].w * boxes[best].h : maskArea(masks[best]);
       const area = boxes[index] ? boxes[index].w * boxes[index].h : maskArea(masks[index]);
@@ -599,7 +598,6 @@ function buildMaskKozijnGroup(
     });
 
     if (seedIndex < 0 || nearest > 0.08) {
-      // Last fallback: use the nearest SAM bounding box.
       boxes.forEach((box, index) => {
         const b = boxEdges(box);
         const dx = point.x < b.left ? b.left - point.x : point.x > b.right ? point.x - b.right : 0;
@@ -614,17 +612,86 @@ function buildMaskKozijnGroup(
     }
   }
 
-  let polygon = polygons[seedIndex] ?? null;
+  // Grow from the clicked pane to the complete physical window assembly.
+  // Same-row panes with aligned top/bottom edges and small gaps are one
+  // mounting surface. Nested/overlapping detections (frame + sash + glass)
+  // are also part of that same assembly.
+  const selected = new Set<number>([seedIndex]);
+  let changed = true;
 
-  // Guaranteed visual fallback: if SAM supplied a mask but its sampled
-  // contour is empty, use that mask's original-image extent. This prevents a
-  // successful SAM response from becoming an invisible selection.
+  while (changed) {
+    changed = false;
+
+    for (let i = 0; i < boxes.length; i++) {
+      if (selected.has(i)) continue;
+
+      const candidate = boxes[i];
+      const candidateEdges = boxEdges(candidate);
+
+      for (const selectedIndex of selected) {
+        const base = boxes[selectedIndex];
+        if (!base) continue;
+
+        const baseEdges = boxEdges(base);
+        const verticalOverlap =
+          overlapLength(baseEdges.top, baseEdges.bottom, candidateEdges.top, candidateEdges.bottom) /
+          Math.max(0.0001, Math.min(base.h, candidate.h));
+
+        const horizontalGap =
+          candidateEdges.left > baseEdges.right
+            ? candidateEdges.left - baseEdges.right
+            : baseEdges.left > candidateEdges.right
+              ? baseEdges.left - candidateEdges.right
+              : 0;
+
+        const centerYDistance = Math.abs(base.cy - candidate.cy);
+        const averageHeight = (base.h + candidate.h) / 2;
+
+        const horizontalAssembly =
+          verticalOverlap >= 0.55 &&
+          horizontalGap <= Math.max(0.025, averageHeight * 0.45) &&
+          centerYDistance <= Math.max(0.025, averageHeight * 0.35);
+
+        const overlappingAssembly =
+          verticalOverlap >= 0.35 &&
+          overlapLength(baseEdges.left, baseEdges.right, candidateEdges.left, candidateEdges.right) /
+            Math.max(0.0001, Math.min(base.w, candidate.w)) >= 0.35;
+
+        if (horizontalAssembly || overlappingAssembly) {
+          selected.add(i);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  const selectedPolygons = [...selected]
+    .map((index) => polygons[index])
+    .filter((polygon): polygon is Point2D[] => Boolean(polygon && polygon.length >= 3));
+
+  let polygon: Point2D[] | null = null;
+
+  if (selectedPolygons.length) {
+    // The convex hull gives the complete outer installation area of adjacent
+    // panes while following the actual perspective better than a rectangle.
+    polygon = convexHull(selectedPolygons.flat());
+  }
+
   if (!polygon || polygon.length < 3) {
-    const mask = masks[seedIndex];
-    const left = Math.max(0, mask.offsetX / imageWidth);
-    const top = Math.max(0, mask.offsetY / imageHeight);
-    const right = Math.min(1, (mask.offsetX + mask.width) / imageWidth);
-    const bottom = Math.min(1, (mask.offsetY + mask.height) / imageHeight);
+    // Guaranteed visual fallback from the selected SAM mask extents.
+    const selectedMasks = [...selected].map((index) => masks[index]);
+    const left = Math.max(0, Math.min(...selectedMasks.map((m) => m.offsetX)) / imageWidth);
+    const top = Math.max(0, Math.min(...selectedMasks.map((m) => m.offsetY)) / imageHeight);
+    const right = Math.min(
+      1,
+      Math.max(...selectedMasks.map((m) => m.offsetX + m.width)) / imageWidth
+    );
+    const bottom = Math.min(
+      1,
+      Math.max(...selectedMasks.map((m) => m.offsetY + m.height)) / imageHeight
+    );
+
     polygon = [
       { x: left, y: top },
       { x: right, y: top },
@@ -632,6 +699,10 @@ function buildMaskKozijnGroup(
       { x: left, y: bottom },
     ];
   }
+
+  const memberBoxes = [...selected]
+    .map((index) => boxes[index])
+    .filter((box): box is Box => Boolean(box));
 
   return {
     polygon,
@@ -641,8 +712,8 @@ function buildMaskKozijnGroup(
       right: Math.max(...polygon.map((p) => p.x)),
       bottom: Math.max(...polygon.map((p) => p.y)),
     },
-    memberCount: 1,
-    memberBoxes: boxes[seedIndex] ? [boxes[seedIndex]] : [],
+    memberCount: selected.size,
+    memberBoxes,
     clickedIndex: seedIndex,
   };
 }
