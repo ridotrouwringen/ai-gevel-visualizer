@@ -320,7 +320,7 @@ export function FacadeCanvas() {
           <img
             src={segmentationPreview}
             alt="SAM 3 selectiepreview"
-            className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-50 rounded-sm"
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-0 rounded-sm"
           />
         )}
         <canvas
