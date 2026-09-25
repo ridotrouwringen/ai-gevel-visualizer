@@ -289,45 +289,127 @@ function collectMaskCutouts(value: unknown, output: MaskCutout[] = []): MaskCuto
 }
 
 function maskToPolygon(mask: MaskCutout, imageWidth = 1, imageHeight = 1): Point2D[] | null {
-  const channels = Math.max(1, mask.channels ?? 1);
-  const points: Point2D[] = [];
+  // Keep the mask in its original raster form. Do not turn the low-resolution
+  // SAM mask directly into a polygon: that creates the visible stair-step /
+  // "rafelige" edges the earlier implementation produced.
+  const polygon = maskUnionToSmoothPolygon([mask], imageWidth, imageHeight);
+  return polygon;
+}
 
-  const isOn = (index: number) => {
-    const value = mask.data[index];
-    return typeof value === "boolean" ? value : Number(value) > 0;
-  };
+function maskUnionToSmoothPolygon(
+  masks: MaskCutout[],
+  imageWidth: number,
+  imageHeight: number
+): Point2D[] | null {
+  if (!masks.length) return null;
 
-  const idx = (x: number, y: number) => (y * mask.width + x) * channels;
+  // Rasterize all selected SAM cut-outs onto a common, higher-resolution
+  // canvas. The resulting contour follows the actual mask silhouette,
+  // including perspective/diagonal edges, instead of a rectangle or convex
+  // hull. This is only a geometry representation for the UI/placement data;
+  // the original image itself is never rasterized or modified here.
+  const canvasSize = 512;
+  const grid = new Uint8Array(canvasSize * canvasSize);
 
-  // Sample the mask boundary rather than every pixel. This keeps the response
-  // small enough for the frontend while retaining the actual perspective.
-  const step = Math.max(1, Math.ceil(Math.max(mask.width, mask.height) / 180));
+  for (const mask of masks) {
+    const channels = Math.max(1, mask.channels ?? 1);
+    const isOn = (index: number) => {
+      const value = mask.data[index];
+      return typeof value === "boolean" ? value : Number(value) > 0;
+    };
 
-  for (let y = 0; y < mask.height; y += step) {
-    for (let x = 0; x < mask.width; x += step) {
-      const current = isOn(idx(x, y));
-      if (!current) continue;
+    for (let y = 0; y < mask.height; y++) {
+      for (let x = 0; x < mask.width; x++) {
+        if (!isOn((y * mask.width + x) * channels)) continue;
 
-      const edge =
-        x === 0 ||
-        y === 0 ||
-        x === mask.width - 1 ||
-        y === mask.height - 1 ||
-        !isOn(idx(Math.max(0, x - 1), y)) ||
-        !isOn(idx(Math.min(mask.width - 1, x + 1), y)) ||
-        !isOn(idx(x, Math.max(0, y - 1))) ||
-        !isOn(idx(x, Math.min(mask.height - 1, y + 1)));
+        const imageX = mask.offsetX + x + 0.5;
+        const imageY = mask.offsetY + y + 0.5;
+        const gx = Math.max(0, Math.min(canvasSize - 1, Math.floor((imageX / imageWidth) * canvasSize)));
+        const gy = Math.max(0, Math.min(canvasSize - 1, Math.floor((imageY / imageHeight) * canvasSize)));
+        grid[gy * canvasSize + gx] = 1;
+      }
+    }
+  }
 
-      if (edge) {
-        points.push({
-          x: (mask.offsetX + x) / imageWidth,
-          y: (mask.offsetY + y) / imageHeight,
+  const boundary: Point2D[] = [];
+  const occupied = (x: number, y: number) =>
+    x >= 0 && y >= 0 && x < canvasSize && y < canvasSize
+      ? grid[y * canvasSize + x] === 1
+      : false;
+
+  // Collect boundary cell centres. We intentionally keep this dense initially;
+  // the smoothing/simplification below removes the staircase without changing
+  // the overall perspective.
+  for (let y = 1; y < canvasSize - 1; y++) {
+    for (let x = 1; x < canvasSize - 1; x++) {
+      if (!occupied(x, y)) continue;
+
+      if (
+        !occupied(x - 1, y) ||
+        !occupied(x + 1, y) ||
+        !occupied(x, y - 1) ||
+        !occupied(x, y + 1)
+      ) {
+        boundary.push({
+          x: (x + 0.5) / canvasSize,
+          y: (y + 0.5) / canvasSize,
         });
       }
     }
   }
 
-  return points.length >= 3 ? points : null;
+  if (boundary.length < 3) return null;
+
+  // Order the boundary around its centroid. Unlike the old radial outer hull,
+  // this does not throw away the perspective shape. The final Chaikin pass
+  // makes the contour visually smooth.
+  const center = {
+    x: boundary.reduce((sum, p) => sum + p.x, 0) / boundary.length,
+    y: boundary.reduce((sum, p) => sum + p.y, 0) / boundary.length,
+  };
+
+  const ordered = [...boundary].sort(
+    (a, b) =>
+      Math.atan2(a.y - center.y, a.x - center.x) -
+      Math.atan2(b.y - center.y, b.x - center.x)
+  );
+
+  // Remove points that are effectively duplicates.
+  const compact: Point2D[] = [];
+  for (const point of ordered) {
+    const previous = compact[compact.length - 1];
+    if (!previous || Math.hypot(point.x - previous.x, point.y - previous.y) > 0.002) {
+      compact.push(point);
+    }
+  }
+
+  if (compact.length < 3) return null;
+
+  // Chaikin corner cutting: two passes remove the stair-step appearance while
+  // retaining the broad diagonal/perspective geometry of the SAM mask.
+  let smoothed = compact;
+  for (let pass = 0; pass < 2; pass++) {
+    const next: Point2D[] = [];
+    for (let i = 0; i < smoothed.length; i++) {
+      const a = smoothed[i];
+      const b = smoothed[(i + 1) % smoothed.length];
+      next.push(
+        { x: a.x * 0.75 + b.x * 0.25, y: a.y * 0.75 + b.y * 0.25 },
+        { x: a.x * 0.25 + b.x * 0.75, y: a.y * 0.25 + b.y * 0.75 }
+      );
+    }
+    smoothed = next;
+  }
+
+  return smoothed;
+}
+
+function buildMaskUnionPolygon(
+  masks: MaskCutout[],
+  imageWidth: number,
+  imageHeight: number
+): Point2D[] | null {
+  return maskUnionToSmoothPolygon(masks, imageWidth, imageHeight);
 }
 
 function collectPolygons(value: unknown, output: Point2D[][] = []): Point2D[][] {
@@ -357,38 +439,18 @@ function collectPolygons(value: unknown, output: Point2D[][] = []): Point2D[][] 
 }
 
 function outerBoundaryPolygon(points: Point2D[]): Point2D[] {
+  // Legacy compatibility for callers that only have polygon points.
+  // New mask-based selection uses maskUnionToSmoothPolygon instead.
   if (points.length <= 3) return points;
-
-  // When several SAM masks belong to one dragged selection, do not use a
-  // convex hull: that hull cuts across recesses/gaps and makes the selected
-  // kozijn visibly too large. Sample the outermost mask boundary by angle
-  // around the combined center. This keeps the silhouette much closer to the
-  // actual outer kozijn while remaining compact enough for the frontend.
   const center = {
     x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
-    y: points.reduce((sum, p) => sum + p.y, 0) / points.length
+    y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
   };
-
-  const bins = 96;
-  const bucketed: Array<{ point: Point2D; distance: number } | null> =
-    Array.from({ length: bins }, () => null);
-
-  for (const point of points) {
-    const angle = Math.atan2(point.y - center.y, point.x - center.x);
-    const normalized = (angle + Math.PI) / (2 * Math.PI);
-    const index = Math.min(bins - 1, Math.floor(normalized * bins));
-    const distance = Math.hypot(point.x - center.x, point.y - center.y);
-
-    if (!bucketed[index] || distance > bucketed[index]!.distance) {
-      bucketed[index] = { point, distance };
-    }
-  }
-
-  const result = bucketed
-    .filter((item): item is { point: Point2D; distance: number } => Boolean(item))
-    .map((item) => item.point);
-
-  return result.length >= 3 ? result : points;
+  return [...points].sort(
+    (a, b) =>
+      Math.atan2(a.y - center.y, a.x - center.x) -
+      Math.atan2(b.y - center.y, b.x - center.x)
+  );
 }
 
 function convexHull(points: Point2D[]): Point2D[] {
@@ -635,27 +697,32 @@ function buildMaskKozijnGroup(
 
   if (!selected.size) return null;
 
-  const selectedPolygons = [...selected]
-    .map((index) => polygons[index])
-    .filter((polygon): polygon is Point2D[] => Boolean(polygon && polygon.length >= 3));
+  const selectedMasks = [...selected]
+    .map((index) => masks[index])
+    .filter(Boolean);
 
   let polygon: Point2D[] | null = null;
 
-  if (selectedPolygons.length) {
-    // The hull is intentionally used here: when the user drags over a
-    // dakkapel containing three panes, the result becomes one installation
-    // area rather than three separate product areas.
-    polygon =
-      selectedPolygons.length === 1
-        ? selectedPolygons[0]
-        : outerBoundaryPolygon(selectedPolygons.flat());
+  // The raster masks are the authoritative geometry. Union them first and
+  // derive one smooth contour. This preserves slanted/perspective windows and
+  // avoids the jagged low-resolution polygon points from SAM3.
+  polygon = maskUnionToSmoothPolygon(selectedMasks, imageWidth, imageHeight);
+
+  // Legacy fallback when SAM returns masks without enough usable pixels.
+  if (!polygon) {
+    const selectedPolygons = [...selected]
+      .map((index) => polygons[index])
+      .filter((candidate): candidate is Point2D[] => Boolean(candidate && candidate.length >= 3));
+
+    if (selectedPolygons.length) {
+      polygon =
+        selectedPolygons.length === 1
+          ? selectedPolygons[0]
+          : outerBoundaryPolygon(selectedPolygons.flat());
+    }
   }
 
   if (!polygon || polygon.length < 3) {
-    const selectedMasks = [...selected]
-      .map((index) => masks[index])
-      .filter(Boolean);
-
     if (!selectedMasks.length) return null;
 
     const left = Math.max(0, Math.min(...selectedMasks.map((m) => m.offsetX)) / imageWidth);
@@ -982,7 +1049,7 @@ export async function POST(req: Request) {
       ? buildMaskKozijnGroup(
           maskCutouts,
           maskPolygons,
-          uniqueBoxes,
+          boxes,
           { left, top, right, bottom },
           imageDimensions.width,
           imageDimensions.height
@@ -1017,8 +1084,8 @@ export async function POST(req: Request) {
       maskCount: maskCutouts.length,
       kozijnPolygon: kozijn?.polygon ?? null,
       clickedBox:
-        kozijn && uniqueBoxes[kozijn.clickedIndex]
-          ? uniqueBoxes[kozijn.clickedIndex]
+        kozijn && boxes[kozijn.clickedIndex]
+          ? boxes[kozijn.clickedIndex]
           : null,
       kozijnBox: kozijn?.box ?? null,
       kozijnMemberCount: kozijn?.memberCount ?? 0,
