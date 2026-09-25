@@ -543,32 +543,43 @@ function maskArea(mask: MaskCutout) {
 
 function buildMaskKozijnGroup(
   masks: MaskCutout[],
-  polygons: Point2D[][],
+  polygons: Array<Point2D[] | null>,
+  boxes: Box[],
   point: Point,
   imageWidth: number,
   imageHeight: number
 ) {
-  if (!masks.length || !polygons.length) return null;
+  if (!masks.length) return null;
 
-  // Select the mask from its actual raster pixels, not from the convex-hull
-  // polygon. This is important for open windows and nested/double frames:
-  // several SAM masks can overlap geometrically while only one actually
-  // contains the user's click.
+  // SAM3 returns masks, boxes and scores as parallel arrays. Keep the mask
+  // index aligned with the corresponding box; never compact the polygon array,
+  // otherwise a missing/empty polygon shifts every following mask by one.
   const containing: number[] = [];
+
   masks.forEach((mask, index) => {
-    if (maskContainsPoint(mask, point, imageWidth, imageHeight)) {
-      containing.push(index);
-    }
+    const rasterHit = maskContainsPoint(mask, point, imageWidth, imageHeight);
+    const box = boxes[index];
+    const boxHit = box
+      ? (() => {
+          const b = boxEdges(box);
+          return point.x >= b.left && point.x <= b.right && point.y >= b.top && point.y <= b.bottom;
+        })()
+      : false;
+
+    if (rasterHit || boxHit) containing.push(index);
   });
 
   let seedIndex = containing[0] ?? -1;
 
-  // If several masks contain the click, prefer the smallest one. This tends
-  // to select the clicked sash/frame instead of an enclosing outer window.
+  // If several masks/boxes contain the click, choose the smallest spatial
+  // region. This avoids accidentally selecting the whole outer dakkapel when
+  // the user clicked one of its panes.
   if (containing.length > 1) {
-    seedIndex = containing.reduce((best, index) =>
-      maskArea(masks[index]) < maskArea(masks[best]) ? index : best
-    );
+    seedIndex = containing.reduce((best, index) => {
+      const bestArea = boxes[best] ? boxes[best].w * boxes[best].h : maskArea(masks[best]);
+      const area = boxes[index] ? boxes[index].w * boxes[index].h : maskArea(masks[index]);
+      return area < bestArea ? index : best;
+    });
   }
 
   if (seedIndex < 0) {
@@ -587,22 +598,51 @@ function buildMaskKozijnGroup(
       }
     });
 
-    if (nearest > 0.06) return null;
+    if (seedIndex < 0 || nearest > 0.08) {
+      // Last fallback: use the nearest SAM bounding box.
+      boxes.forEach((box, index) => {
+        const b = boxEdges(box);
+        const dx = point.x < b.left ? b.left - point.x : point.x > b.right ? point.x - b.right : 0;
+        const dy = point.y < b.top ? b.top - point.y : point.y > b.bottom ? point.y - b.bottom : 0;
+        const distance = Math.hypot(dx, dy);
+        if (distance < nearest) {
+          nearest = distance;
+          seedIndex = index;
+        }
+      });
+      if (seedIndex < 0 || nearest > 0.08) return null;
+    }
   }
 
-  const selected = polygons[seedIndex];
-  if (!selected || selected.length < 3) return null;
+  let polygon = polygons[seedIndex] ?? null;
+
+  // Guaranteed visual fallback: if SAM supplied a mask but its sampled
+  // contour is empty, use that mask's original-image extent. This prevents a
+  // successful SAM response from becoming an invisible selection.
+  if (!polygon || polygon.length < 3) {
+    const mask = masks[seedIndex];
+    const left = Math.max(0, mask.offsetX / imageWidth);
+    const top = Math.max(0, mask.offsetY / imageHeight);
+    const right = Math.min(1, (mask.offsetX + mask.width) / imageWidth);
+    const bottom = Math.min(1, (mask.offsetY + mask.height) / imageHeight);
+    polygon = [
+      { x: left, y: top },
+      { x: right, y: top },
+      { x: right, y: bottom },
+      { x: left, y: bottom },
+    ];
+  }
 
   return {
-    polygon: selected,
+    polygon,
     box: {
-      left: Math.min(...selected.map((p) => p.x)),
-      top: Math.min(...selected.map((p) => p.y)),
-      right: Math.max(...selected.map((p) => p.x)),
-      bottom: Math.max(...selected.map((p) => p.y)),
+      left: Math.min(...polygon.map((p) => p.x)),
+      top: Math.min(...polygon.map((p) => p.y)),
+      right: Math.max(...polygon.map((p) => p.x)),
+      bottom: Math.max(...polygon.map((p) => p.y)),
     },
     memberCount: 1,
-    memberBoxes: [],
+    memberBoxes: boxes[seedIndex] ? [boxes[seedIndex]] : [],
     clickedIndex: seedIndex,
   };
 }
@@ -839,17 +879,18 @@ export async function POST(req: Request) {
     // returned cut-out masks to normalized boundary polygons using their
     // original-image pixel offsets. This preserves perspective and lets us
     // combine a fixed pane and an opening sash into one physical window area.
-    const maskPolygons = maskCutouts
-      .map((mask) =>
-        imageDimensions
-          ? maskToPolygon(mask, imageDimensions.width, imageDimensions.height)
-          : null
-      )
-      .filter((polygon): polygon is Point2D[] => Boolean(polygon));
+    const maskPolygons: Array<Point2D[] | null> = maskCutouts.map((mask) =>
+      imageDimensions
+        ? maskToPolygon(mask, imageDimensions.width, imageDimensions.height)
+        : null
+    );
 
     // Keep the legacy polygon path as a fallback for model/output variants
     // that expose polygon points directly.
-    const allPolygons = maskPolygons.length ? maskPolygons : polygons;
+    const hasMaskPolygon = maskPolygons.some((polygon) => Boolean(polygon));
+    const allPolygons = hasMaskPolygon
+      ? maskPolygons.filter((polygon): polygon is Point2D[] => Boolean(polygon))
+      : polygons;
 
     const detections: Detection[] = boxes.map((box) => {
       const polygon = allPolygons
@@ -885,6 +926,7 @@ export async function POST(req: Request) {
       ? buildMaskKozijnGroup(
           maskCutouts,
           maskPolygons,
+          uniqueBoxes,
           { x, y },
           imageDimensions.width,
           imageDimensions.height
