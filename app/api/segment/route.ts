@@ -506,37 +506,100 @@ function pointInPolygon(point: Point2D, polygon: Point2D[]) {
   return inside;
 }
 
+function maskContainsPoint(mask: MaskCutout, point: Point, imageWidth: number, imageHeight: number) {
+  const pixelX = point.x * imageWidth;
+  const pixelY = point.y * imageHeight;
+  const localX = Math.round(pixelX - mask.offsetX);
+  const localY = Math.round(pixelY - mask.offsetY);
+
+  if (
+    localX < 0 ||
+    localY < 0 ||
+    localX >= mask.width ||
+    localY >= mask.height
+  ) {
+    return false;
+  }
+
+  const channels = Math.max(1, mask.channels ?? 1);
+  const index = (localY * mask.width + localX) * channels;
+  const value = mask.data[index];
+
+  return typeof value === "boolean" ? value : Number(value) > 0;
+}
+
+function maskArea(mask: MaskCutout) {
+  const channels = Math.max(1, mask.channels ?? 1);
+  const stride = channels;
+  let area = 0;
+
+  for (let i = 0; i < mask.width * mask.height; i++) {
+    const value = mask.data[i * stride];
+    if (typeof value === "boolean" ? value : Number(value) > 0) area++;
+  }
+
+  return area;
+}
+
 function buildMaskKozijnGroup(
-  masks: { polygon: Point2D[] }[],
-  point: Point
+  masks: MaskCutout[],
+  polygons: Point2D[][],
+  point: Point,
+  imageWidth: number,
+  imageHeight: number
 ) {
-  if (!masks.length) return null;
+  if (!masks.length || !polygons.length) return null;
 
-  const clicked = masks.findIndex((mask) => pointInPolygon(point, mask.polygon));
+  // Select the mask from its actual raster pixels, not from the convex-hull
+  // polygon. This is important for open windows and nested/double frames:
+  // several SAM masks can overlap geometrically while only one actually
+  // contains the user's click.
+  const containing: number[] = [];
+  masks.forEach((mask, index) => {
+    if (maskContainsPoint(mask, point, imageWidth, imageHeight)) {
+      containing.push(index);
+    }
+  });
 
-  let seedIndex = clicked;
+  let seedIndex = containing[0] ?? -1;
+
+  // If several masks contain the click, prefer the smallest one. This tends
+  // to select the clicked sash/frame instead of an enclosing outer window.
+  if (containing.length > 1) {
+    seedIndex = containing.reduce((best, index) =>
+      maskArea(masks[index]) < maskArea(masks[best]) ? index : best
+    );
+  }
+
   if (seedIndex < 0) {
     let nearest = Number.POSITIVE_INFINITY;
     masks.forEach((mask, index) => {
-      const cx = mask.polygon.reduce((s, p) => s + p.x, 0) / mask.polygon.length;
-      const cy = mask.polygon.reduce((s, p) => s + p.y, 0) / mask.polygon.length;
+      const polygon = polygons[index];
+      if (!polygon || polygon.length < 3) return;
+
+      const cx = polygon.reduce((s, p) => s + p.x, 0) / polygon.length;
+      const cy = polygon.reduce((s, p) => s + p.y, 0) / polygon.length;
       const distance = Math.hypot(point.x - cx, point.y - cy);
+
       if (distance < nearest) {
         nearest = distance;
         seedIndex = index;
       }
     });
-    if (nearest > 0.12) return null;
+
+    if (nearest > 0.06) return null;
   }
 
-  const selected = masks[seedIndex];
+  const selected = polygons[seedIndex];
+  if (!selected || selected.length < 3) return null;
+
   return {
-    polygon: selected.polygon,
+    polygon: selected,
     box: {
-      left: Math.min(...selected.polygon.map((p) => p.x)),
-      top: Math.min(...selected.polygon.map((p) => p.y)),
-      right: Math.max(...selected.polygon.map((p) => p.x)),
-      bottom: Math.max(...selected.polygon.map((p) => p.y)),
+      left: Math.min(...selected.map((p) => p.x)),
+      top: Math.min(...selected.map((p) => p.y)),
+      right: Math.max(...selected.map((p) => p.x)),
+      bottom: Math.max(...selected.map((p) => p.y)),
     },
     memberCount: 1,
     memberBoxes: [],
@@ -818,8 +881,15 @@ export async function POST(req: Request) {
     });
 
     const uniqueBoxes = uniqueDetections.map((detection) => detection.box);
-    const maskDetections = maskPolygons.map((polygon) => ({ polygon }));
-    const maskKozijn = buildMaskKozijnGroup(maskDetections, { x, y });
+    const maskKozijn = imageDimensions
+      ? buildMaskKozijnGroup(
+          maskCutouts,
+          maskPolygons,
+          { x, y },
+          imageDimensions.width,
+          imageDimensions.height
+        )
+      : null;
     const kozijn = maskKozijn ?? buildKozijnGroup(uniqueDetections, { x, y });
 
     // Temporary diagnostic information: if SAM3 returns a different JSON
