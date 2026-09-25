@@ -545,126 +545,57 @@ function buildMaskKozijnGroup(
   masks: MaskCutout[],
   polygons: Array<Point2D[] | null>,
   boxes: Box[],
-  point: Point,
+  selection: { left: number; top: number; right: number; bottom: number },
   imageWidth: number,
   imageHeight: number
 ) {
   if (!masks.length) return null;
 
-  // A sun screen or rolluik is mounted on the physical window assembly, not
-  // on an individual glass pane. For a dakkapel with 3 adjacent panes, a
-  // click in any one pane therefore has to select the complete assembly.
-  const containing: number[] = [];
+  const intersectsSelection = (left: number, top: number, right: number, bottom: number) => {
+    return !(
+      right < selection.left ||
+      left > selection.right ||
+      bottom < selection.top ||
+      top > selection.bottom
+    );
+  };
+
+  // The user's drag is the authoritative selection. We select every SAM mask
+  // that lies inside or intersects that dragged area. This is deliberately
+  // different from the old "guess the physical kozijn from one click" logic.
+  const selected = new Set<number>();
 
   masks.forEach((mask, index) => {
-    const rasterHit = maskContainsPoint(mask, point, imageWidth, imageHeight);
-    const box = boxes[index];
-    const boxHit = box
-      ? (() => {
-          const b = boxEdges(box);
-          return point.x >= b.left && point.x <= b.right && point.y >= b.top && point.y <= b.bottom;
-        })()
-      : false;
+    const left = mask.offsetX / imageWidth;
+    const top = mask.offsetY / imageHeight;
+    const right = Math.min(1, (mask.offsetX + mask.width) / imageWidth);
+    const bottom = Math.min(1, (mask.offsetY + mask.height) / imageHeight);
 
-    if (rasterHit || boxHit) containing.push(index);
+    const centerX = (left + right) / 2;
+    const centerY = (top + bottom) / 2;
+
+    if (
+      (centerX >= selection.left &&
+        centerX <= selection.right &&
+        centerY >= selection.top &&
+        centerY <= selection.bottom) ||
+      intersectsSelection(left, top, right, bottom)
+    ) {
+      selected.add(index);
+    }
   });
 
-  let seedIndex = containing[0] ?? -1;
-
-  if (containing.length > 1) {
-    // Prefer the smallest box at the click as the pane/sash seed. We then
-    // expand from that seed to the complete physical window assembly.
-    seedIndex = containing.reduce((best, index) => {
-      const bestArea = boxes[best] ? boxes[best].w * boxes[best].h : maskArea(masks[best]);
-      const area = boxes[index] ? boxes[index].w * boxes[index].h : maskArea(masks[index]);
-      return area < bestArea ? index : best;
-    });
-  }
-
-  if (seedIndex < 0) {
-    let nearest = Number.POSITIVE_INFINITY;
-    masks.forEach((mask, index) => {
-      const polygon = polygons[index];
-      if (!polygon || polygon.length < 3) return;
-
-      const cx = polygon.reduce((s, p) => s + p.x, 0) / polygon.length;
-      const cy = polygon.reduce((s, p) => s + p.y, 0) / polygon.length;
-      const distance = Math.hypot(point.x - cx, point.y - cy);
-
-      if (distance < nearest) {
-        nearest = distance;
-        seedIndex = index;
+  // Some SAM output variants expose boxes more reliably than mask extents.
+  if (!selected.size) {
+    boxes.forEach((box, index) => {
+      const b = boxEdges(box);
+      if (intersectsSelection(b.left, b.top, b.right, b.bottom)) {
+        selected.add(index);
       }
     });
-
-    if (seedIndex < 0 || nearest > 0.08) {
-      boxes.forEach((box, index) => {
-        const b = boxEdges(box);
-        const dx = point.x < b.left ? b.left - point.x : point.x > b.right ? point.x - b.right : 0;
-        const dy = point.y < b.top ? b.top - point.y : point.y > b.bottom ? point.y - b.bottom : 0;
-        const distance = Math.hypot(dx, dy);
-        if (distance < nearest) {
-          nearest = distance;
-          seedIndex = index;
-        }
-      });
-      if (seedIndex < 0 || nearest > 0.08) return null;
-    }
   }
 
-  // Grow from the clicked pane to the complete physical window assembly.
-  // Same-row panes with aligned top/bottom edges and small gaps are one
-  // mounting surface. Nested/overlapping detections (frame + sash + glass)
-  // are also part of that same assembly.
-  const selected = new Set<number>([seedIndex]);
-  let changed = true;
-
-  while (changed) {
-    changed = false;
-
-    for (let i = 0; i < boxes.length; i++) {
-      if (selected.has(i)) continue;
-
-      const candidate = boxes[i];
-      const candidateEdges = boxEdges(candidate);
-
-      for (const selectedIndex of selected) {
-        const base = boxes[selectedIndex];
-        if (!base) continue;
-
-        const baseEdges = boxEdges(base);
-        const verticalOverlap =
-          overlapLength(baseEdges.top, baseEdges.bottom, candidateEdges.top, candidateEdges.bottom) /
-          Math.max(0.0001, Math.min(base.h, candidate.h));
-
-        const horizontalGap =
-          candidateEdges.left > baseEdges.right
-            ? candidateEdges.left - baseEdges.right
-            : baseEdges.left > candidateEdges.right
-              ? baseEdges.left - candidateEdges.right
-              : 0;
-
-        const centerYDistance = Math.abs(base.cy - candidate.cy);
-        const averageHeight = (base.h + candidate.h) / 2;
-
-        const horizontalAssembly =
-          verticalOverlap >= 0.55 &&
-          horizontalGap <= Math.max(0.025, averageHeight * 0.45) &&
-          centerYDistance <= Math.max(0.025, averageHeight * 0.35);
-
-        const overlappingAssembly =
-          verticalOverlap >= 0.35 &&
-          overlapLength(baseEdges.left, baseEdges.right, candidateEdges.left, candidateEdges.right) /
-            Math.max(0.0001, Math.min(base.w, candidate.w)) >= 0.35;
-
-        if (horizontalAssembly || overlappingAssembly) {
-          selected.add(i);
-          changed = true;
-          break;
-        }
-      }
-    }
-  }
+  if (!selected.size) return null;
 
   const selectedPolygons = [...selected]
     .map((index) => polygons[index])
@@ -673,14 +604,19 @@ function buildMaskKozijnGroup(
   let polygon: Point2D[] | null = null;
 
   if (selectedPolygons.length) {
-    // The convex hull gives the complete outer installation area of adjacent
-    // panes while following the actual perspective better than a rectangle.
+    // The hull is intentionally used here: when the user drags over a
+    // dakkapel containing three panes, the result becomes one installation
+    // area rather than three separate product areas.
     polygon = convexHull(selectedPolygons.flat());
   }
 
   if (!polygon || polygon.length < 3) {
-    // Guaranteed visual fallback from the selected SAM mask extents.
-    const selectedMasks = [...selected].map((index) => masks[index]);
+    const selectedMasks = [...selected]
+      .map((index) => masks[index])
+      .filter(Boolean);
+
+    if (!selectedMasks.length) return null;
+
     const left = Math.max(0, Math.min(...selectedMasks.map((m) => m.offsetX)) / imageWidth);
     const top = Math.max(0, Math.min(...selectedMasks.map((m) => m.offsetY)) / imageHeight);
     const right = Math.min(
@@ -714,7 +650,7 @@ function buildMaskKozijnGroup(
     },
     memberCount: selected.size,
     memberBoxes,
-    clickedIndex: seedIndex,
+    clickedIndex: [...selected][0] ?? 0,
   };
 }
 
@@ -839,18 +775,20 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const image = body?.image;
-    const point = body?.point;
+    const selection = body?.selection;
     const requestedImageWidth = typeof body?.imageWidth === "number" ? body.imageWidth : null;
     const requestedImageHeight = typeof body?.imageHeight === "number" ? body.imageHeight : null;
 
     if (
       typeof image !== "string" ||
-      !point ||
-      typeof point.x !== "number" ||
-      typeof point.y !== "number"
+      !selection ||
+      typeof selection.left !== "number" ||
+      typeof selection.top !== "number" ||
+      typeof selection.right !== "number" ||
+      typeof selection.bottom !== "number"
     ) {
       return NextResponse.json(
-        { error: "Afbeelding en klikpositie zijn verplicht." },
+        { error: "Afbeelding en sleepselectie zijn verplicht." },
         { status: 400 }
       );
     }
@@ -863,8 +801,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const x = Math.max(0, Math.min(1, point.x));
-    const y = Math.max(0, Math.min(1, point.y));
+    const left = Math.max(0, Math.min(1, Math.min(selection.left, selection.right)));
+    const top = Math.max(0, Math.min(1, Math.min(selection.top, selection.bottom)));
+    const right = Math.max(0, Math.min(1, Math.max(selection.left, selection.right)));
+    const bottom = Math.max(0, Math.min(1, Math.max(selection.top, selection.bottom)));
 
     const response = await fetch("https://api.replicate.com/v1/predictions", {
       method: "POST",
@@ -879,8 +819,12 @@ export async function POST(req: Request) {
           image,
           prompts: [
             JSON.stringify({
-              text: "window frame",
-              positive_points: [[x, y]],
+              positive_boxes: [[
+                (left + right) / 2,
+                (top + bottom) / 2,
+                right - left,
+                bottom - top
+              ]],
             }),
           ],
           confidence_threshold: 0.35,
@@ -998,7 +942,7 @@ export async function POST(req: Request) {
           maskCutouts,
           maskPolygons,
           uniqueBoxes,
-          { x, y },
+          { left, top, right, bottom },
           imageDimensions.width,
           imageDimensions.height
         )
@@ -1015,8 +959,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       prompt: {
-        text: "window frame",
-        point: { x, y },
+        type: "positive_box",
+        selection: { left, top, right, bottom },
       },
       visualizationUrl: visualizationUrls[0] ?? null,
       visualizationUrls,
@@ -1033,7 +977,7 @@ export async function POST(req: Request) {
       kozijnBox: kozijn?.box ?? null,
       kozijnMemberCount: kozijn?.memberCount ?? 0,
       kozijnMemberBoxes: kozijn?.memberBoxes ?? [],
-      point: { x, y },
+      selection: { left, top, right, bottom },
       debugShape,
     });
   } catch (error) {
