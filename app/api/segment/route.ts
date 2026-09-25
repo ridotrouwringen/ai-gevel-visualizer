@@ -574,12 +574,15 @@ function buildMaskKozijnGroup(
     const centerX = (left + right) / 2;
     const centerY = (top + bottom) / 2;
 
+    // The drag is a guide, not the final mask boundary. Prefer masks whose
+    // center lies inside the user's selection. This prevents a large drag
+    // outside a window from pulling in neighbouring/partially intersecting
+    // SAM detections.
     if (
-      (centerX >= selection.left &&
-        centerX <= selection.right &&
-        centerY >= selection.top &&
-        centerY <= selection.bottom) ||
-      intersectsSelection(left, top, right, bottom)
+      centerX >= selection.left &&
+      centerX <= selection.right &&
+      centerY >= selection.top &&
+      centerY <= selection.bottom
     ) {
       selected.add(index);
     }
