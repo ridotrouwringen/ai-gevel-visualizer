@@ -33,7 +33,8 @@ export default function Home() {
         systemColor: mask.systemColor,
         fabricColor: mask.fabricColor,
         type: mask.type,
-        coordinates: mask.coordinates
+        coordinates: mask.coordinates,
+        rasterMasks: mask.rasterMasks
       }))
     };
 
