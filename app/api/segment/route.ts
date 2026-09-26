@@ -685,7 +685,7 @@ function maskArea(mask: MaskCutout) {
 
 function buildMaskKozijnGroup(
   masks: MaskCutout[],
-  polygons: Array<Point2D[] | null>,
+  polygons: Array<Point2D | null>[],
   boxes: Box[],
   selection: { left: number; top: number; right: number; bottom: number },
   imageWidth: number,
@@ -702,11 +702,8 @@ function buildMaskKozijnGroup(
     );
   };
 
-  // The user's drag is the authoritative selection region.
-  // SAM3 returns each mask as a cut-out with an image-space offset. Select
-  // every mask that meaningfully overlaps the drag. This is important for
-  // open windows and dakkapellen: the visible panes/sashes can have centres
-  // outside a small drag while still belonging to the selected assembly.
+  // The drag is the only user input. SAM3 detections are supporting evidence,
+  // not the final product boundaries.
   const selected = new Set<number>();
 
   masks.forEach((mask, index) => {
@@ -744,16 +741,11 @@ function buildMaskKozijnGroup(
       centerY >= selection.top &&
       centerY <= selection.bottom;
 
-    // Normal case: the mask centre is inside the drag.
-    // Partial-overlap case: still accept it when at least 15% of its
-    // bounding rectangle lies in the drag. This handles a drag that crosses
-    // an outer frame, an opening sash, or a dakkapel edge.
     if (centerInside || overlapRatio >= 0.15) {
       selected.add(index);
     }
   });
 
-  // Some SAM output variants expose boxes more reliably than mask extents.
   if (!selected.size) {
     boxes.forEach((box, index) => {
       const b = boxEdges(box);
@@ -769,32 +761,80 @@ function buildMaskKozijnGroup(
     .map((index) => masks[index])
     .filter(Boolean);
 
-  let polygon: Point2D[] | null = null;
+  /*
+   * IMPORTANT:
+   * Do NOT union the SAM3 pane masks as the final geometry.
+   *
+   * For a dakkapel/erker SAM3 may return:
+   *
+   *   [pane 1] [pane 2] [pane 3]
+   *
+   * but our business rule is:
+   *
+   *        /----------------\
+   *       /                  \
+   *      |     ONE MASK       |
+   *      |                    |
+   *      |____________________|
+   *
+   * Therefore we use the SAM masks only to find the outermost occupied
+   * geometry. We calculate one outer contour (convex hull) around all positive
+   * SAM pixels and then FILL that contour into one continuous raster mask.
+   * Internal panes/mullions can no longer create separate masks or holes.
+   */
+  const hullPoints: Point2D[] = [];
 
-  // The raster masks are the authoritative geometry. Union them first and
-  // derive one smooth contour. This preserves slanted/perspective windows and
-  // avoids the jagged low-resolution polygon points from SAM3.
-  polygon = maskUnionToSmoothPolygon(selectedMasks, imageWidth, imageHeight);
+  for (const mask of selectedMasks) {
+    const channels = Math.max(1, mask.channels ?? 1);
 
-  // Legacy fallback when SAM returns masks without enough usable pixels.
-  if (!polygon) {
-    const selectedPolygons = [...selected]
-      .map((index) => polygons[index])
-      .filter((candidate): candidate is Point2D[] => Boolean(candidate && candidate.length >= 3));
+    for (let y = 0; y < mask.height; y++) {
+      for (let x = 0; x < mask.width; x++) {
+        const value = mask.data[(y * mask.width + x) * channels];
+        const isOn =
+          typeof value === "boolean" ? value : Number(value) > 0;
 
-    if (selectedPolygons.length) {
-      polygon =
-        selectedPolygons.length === 1
-          ? selectedPolygons[0]
-          : outerBoundaryPolygon(selectedPolygons.flat());
+        if (!isOn) continue;
+
+        hullPoints.push({
+          x: (mask.offsetX + x + 0.5) / imageWidth,
+          y: (mask.offsetY + y + 0.5) / imageHeight,
+        });
+      }
     }
   }
 
+  let polygon: Point2D[] | null = null;
+
+  if (hullPoints.length >= 3) {
+    polygon = convexHull(hullPoints);
+  }
+
+  // Fallback to the returned polygons if the raster masks contain too few
+  // usable pixels.
+  if (!polygon || polygon.length < 3) {
+    const selectedPolygons = [...selected]
+      .map((index) => polygons[index])
+      .filter((candidate): candidate is Point2D[] =>
+        Boolean(candidate && candidate.length >= 3)
+      );
+
+    if (selectedPolygons.length) {
+      polygon = convexHull(selectedPolygons.flat());
+    }
+  }
+
+  // Final fallback: use the outer bounds of all selected SAM masks.
   if (!polygon || polygon.length < 3) {
     if (!selectedMasks.length) return null;
 
-    const left = Math.max(0, Math.min(...selectedMasks.map((m) => m.offsetX)) / imageWidth);
-    const top = Math.max(0, Math.min(...selectedMasks.map((m) => m.offsetY)) / imageHeight);
+    const left = Math.max(
+      0,
+      Math.min(...selectedMasks.map((m) => m.offsetX)) / imageWidth
+    );
+    const top = Math.max(
+      0,
+      Math.min(...selectedMasks.map((m) => m.offsetY)) / imageHeight
+    );
     const right = Math.min(
       1,
       Math.max(...selectedMasks.map((m) => m.offsetX + m.width)) / imageWidth
@@ -812,12 +852,65 @@ function buildMaskKozijnGroup(
     ];
   }
 
+  /*
+   * Convert the single outer contour back into ONE raster cutout.
+   * This is what is ultimately passed to FLUX.
+   */
+  const pixelPoints = polygon.map((point) => ({
+    x: point.x * imageWidth,
+    y: point.y * imageHeight,
+  }));
+
+  const rasterLeft = Math.max(
+    0,
+    Math.floor(Math.min(...pixelPoints.map((p) => p.x)))
+  );
+  const rasterTop = Math.max(
+    0,
+    Math.floor(Math.min(...pixelPoints.map((p) => p.y)))
+  );
+  const rasterRight = Math.min(
+    imageWidth,
+    Math.ceil(Math.max(...pixelPoints.map((p) => p.x))) + 1
+  );
+  const rasterBottom = Math.min(
+    imageHeight,
+    Math.ceil(Math.max(...pixelPoints.map((p) => p.y))) + 1
+  );
+
+  const rasterWidth = Math.max(1, rasterRight - rasterLeft);
+  const rasterHeight = Math.max(1, rasterBottom - rasterTop);
+  const rasterData = new Array<number>(rasterWidth * rasterHeight).fill(0);
+
+  for (let y = 0; y < rasterHeight; y++) {
+    for (let x = 0; x < rasterWidth; x++) {
+      const px = rasterLeft + x + 0.5;
+      const py = rasterTop + y + 0.5;
+
+      if (pointInPolygon(
+        { x: px / imageWidth, y: py / imageHeight },
+        polygon
+      )) {
+        rasterData[y * rasterWidth + x] = 255;
+      }
+    }
+  }
+
+  const singleOuterMask: MaskCutout = {
+    data: rasterData,
+    width: rasterWidth,
+    height: rasterHeight,
+    offsetX: rasterLeft,
+    offsetY: rasterTop,
+  };
+
   const memberBoxes = [...selected]
     .map((index) => boxes[index])
     .filter((box): box is Box => Boolean(box));
 
   return {
-    selectedMasks,
+    // CRITICAL: only ONE mask leaves this function.
+    selectedMasks: [singleOuterMask],
     polygon,
     box: {
       left: Math.min(...polygon.map((p) => p.x)),
