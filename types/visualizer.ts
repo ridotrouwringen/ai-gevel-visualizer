@@ -13,7 +13,14 @@ export type FabricColor =
 export interface MaskShape {
   id: string;
   sequenceNumber: number;
-  type: 'POLYGON' | 'LINE';
+  type: 'POLYGON' | 'LINE' | 'RASTER_MASK';
+  rasterMasks?: {
+    data: number[];
+    width: number;
+    height: number;
+    offsetX: number;
+    offsetY: number;
+  }[];
   coordinates: { x: number; y: number }[];
   productType: ProductType;
   systemColor: SystemColor;
