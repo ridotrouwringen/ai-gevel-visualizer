@@ -749,6 +749,7 @@ function buildMaskKozijnGroup(
     .filter((box): box is Box => Boolean(box));
 
   return {
+    selectedMasks,
     polygon,
     box: {
       left: Math.min(...polygon.map((p) => p.x)),
@@ -927,6 +928,7 @@ export async function POST(req: Request) {
           image,
           prompts: [
             JSON.stringify({
+              text: "window frame",
               positive_boxes: [[
                 (left + right) / 2,
                 (top + bottom) / 2,
@@ -1090,6 +1092,13 @@ export async function POST(req: Request) {
       kozijnBox: kozijn?.box ?? null,
       kozijnMemberCount: kozijn?.memberCount ?? 0,
       kozijnMemberBoxes: kozijn?.memberBoxes ?? [],
+      selectedMasks: kozijn?.selectedMasks?.map((mask) => ({
+        width: mask.width,
+        height: mask.height,
+        offsetX: mask.offsetX,
+        offsetY: mask.offsetY,
+        data: mask.data.map((value) => typeof value === "boolean" ? (value ? 255 : 0) : (Number(value) > 0 ? 255 : 0))
+      })) ?? [],
       selection: { left, top, right, bottom },
       debugShape,
     });
