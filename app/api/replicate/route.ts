@@ -87,7 +87,7 @@ async function makeMaskDataUri(width: number, height: number, selection: Selecti
     : buildRasterMask(width, height, selection.rasterMasks ?? []);
 
   const png = await sharp(raw, { raw: { width, height, channels: 1 } }).png().toBuffer();
-  return { dataUri: bufferToDataUri(png), png };
+  return { dataUri: bufferToDataUri(png), raw };
 }
 
 async function extractPredictionUrl(prediction: any) {
@@ -116,7 +116,7 @@ async function runFill(imageDataUri: string, maskDataUri: string, prompt: string
         guidance: 60,
         prompt_upsampling: false,
         safety_tolerance: 2,
-        output_format: "png",
+        output_format: "jpg",
       },
     }),
   });
@@ -136,7 +136,7 @@ async function runFill(imageDataUri: string, maskDataUri: string, prompt: string
   return url as string;
 }
 
-async function compositeOnlyInsideMask(originalBuffer: Buffer, generatedUrl: string, maskPng: Buffer, width: number, height: number) {
+async function compositeOnlyInsideMask(originalBuffer: Buffer, generatedUrl: string, maskRaw: Buffer, width: number, height: number) {
   const generatedResponse = await fetch(generatedUrl);
   if (!generatedResponse.ok) throw new Error("Het AI-resultaat kon niet worden opgehaald.");
 
@@ -145,7 +145,7 @@ async function compositeOnlyInsideMask(originalBuffer: Buffer, generatedUrl: str
   const generatedRgba = await sharp(generatedBuffer)
     .resize(width, height, { fit: "fill" })
     .removeAlpha()
-    .joinChannel(maskPng, { raw: { width, height, channels: 1 } })
+    .joinChannel(maskRaw, { raw: { width, height, channels: 1 } })
     .png()
     .toBuffer();
 
@@ -193,7 +193,7 @@ export async function POST(req: Request) {
     const results: Array<{ id: string; productType: ProductType }> = [];
 
     for (const selection of selections) {
-      const { dataUri: maskDataUri, png: maskPng } = await makeMaskDataUri(width, height, selection);
+      const { dataUri: maskDataUri, raw: maskRaw } = await makeMaskDataUri(width, height, selection);
       const prompt = productPrompt(selection);
       const currentImageDataUri = bufferToDataUri(currentBuffer, "image/png");
       const generatedUrl = await runFill(currentImageDataUri, maskDataUri, prompt, apiKey);
@@ -201,7 +201,7 @@ export async function POST(req: Request) {
       // The model may alter pixels outside the requested area internally.
       // We deliberately discard those pixels and copy the AI result back only
       // through the exact binary mask. This makes the original photo the hard base.
-      currentBuffer = await compositeOnlyInsideMask(currentBuffer, generatedUrl, maskPng, width, height);
+      currentBuffer = await compositeOnlyInsideMask(currentBuffer, generatedUrl, maskRaw, width, height);
       results.push({ id: selection.id, productType: selection.productType });
     }
 
