@@ -76,7 +76,51 @@ export function FacadeCanvas() {
     masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
 
-      if (mask.type === 'POLYGON') {
+      if (mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) {
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = canvas.width;
+        maskCanvas.height = canvas.height;
+        const maskCtx = maskCanvas.getContext('2d');
+        if (maskCtx) {
+          const imageWidth = imgRef.current?.naturalWidth || canvas.width;
+          const imageHeight = imgRef.current?.naturalHeight || canvas.height;
+          const imageScaleX = canvas.width / imageWidth;
+          const imageScaleY = canvas.height / imageHeight;
+          mask.rasterMasks.forEach((raster) => {
+            const local = maskCtx.createImageData(raster.width, raster.height);
+            for (let i = 0; i < raster.width * raster.height; i++) {
+              const alpha = raster.data[i] > 0 ? 102 : 0;
+              local.data[i * 4] = 255;
+              local.data[i * 4 + 1] = 255;
+              local.data[i * 4 + 2] = 255;
+              local.data[i * 4 + 3] = alpha;
+            }
+            const localCanvas = document.createElement('canvas');
+            localCanvas.width = raster.width;
+            localCanvas.height = raster.height;
+            const localCtx = localCanvas.getContext('2d');
+            if (!localCtx) return;
+            localCtx.putImageData(local, 0, 0);
+            maskCtx.drawImage(
+              localCanvas,
+              raster.offsetX * imageScaleX,
+              raster.offsetY * imageScaleY,
+              raster.width * imageScaleX,
+              raster.height * imageScaleY
+            );
+          });
+          ctx.save();
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 0.8;
+          ctx.drawImage(maskCanvas, 0, 0);
+          ctx.restore();
+        }
+        const midX = canvas.width * 0.5;
+        const midY = canvas.height * 0.5;
+        drawBadge(ctx, midX, midY, mask.sequenceNumber, hexColor);
+      }
+
+      else if (mask.type === 'POLYGON') {
         ctx.beginPath();
         mask.coordinates.forEach((coord, i) => {
           const x = coord.x * canvas.width;
@@ -253,46 +297,11 @@ export function FacadeCanvas() {
         setSegmentationPreview(data.visualizationUrl);
       }
 
-      const kozijnPolygon = Array.isArray(data.kozijnPolygon)
-        ? data.kozijnPolygon
-            .filter(
-              (p: unknown) =>
-                p &&
-                typeof p === 'object' &&
-                typeof (p as { x?: unknown }).x === 'number' &&
-                typeof (p as { y?: unknown }).y === 'number'
-            )
-            .map((p: { x: number; y: number }) => ({
-              x: Math.max(0, Math.min(1, p.x)),
-              y: Math.max(0, Math.min(1, p.y))
-            }))
-        : [];
-
-      const kozijnBox = data.kozijnBox;
-
-      if (kozijnPolygon.length >= 3) {
+      if (Array.isArray(data.selectedMasks) && data.selectedMasks.length) {
         addMask({
-          type: 'POLYGON',
-          coordinates: kozijnPolygon,
-          productType: activeProduct,
-          systemColor: activeSystemColor,
-          fabricColor: activeFabricColor || undefined
-        });
-      } else if (
-        kozijnBox &&
-        typeof kozijnBox.left === 'number' &&
-        typeof kozijnBox.top === 'number' &&
-        typeof kozijnBox.right === 'number' &&
-        typeof kozijnBox.bottom === 'number'
-      ) {
-        addMask({
-          type: 'POLYGON',
-          coordinates: [
-            { x: Math.max(0, Math.min(1, kozijnBox.left)), y: Math.max(0, Math.min(1, kozijnBox.top)) },
-            { x: Math.max(0, Math.min(1, kozijnBox.right)), y: Math.max(0, Math.min(1, kozijnBox.top)) },
-            { x: Math.max(0, Math.min(1, kozijnBox.right)), y: Math.max(0, Math.min(1, kozijnBox.bottom)) },
-            { x: Math.max(0, Math.min(1, kozijnBox.left)), y: Math.max(0, Math.min(1, kozijnBox.bottom)) }
-          ],
+          type: 'RASTER_MASK',
+          coordinates: [],
+          rasterMasks: data.selectedMasks,
           productType: activeProduct,
           systemColor: activeSystemColor,
           fabricColor: activeFabricColor || undefined
