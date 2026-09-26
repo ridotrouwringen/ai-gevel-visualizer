@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import Replicate from "replicate";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import sharp from "sharp";
 import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, type FabricColor, type MaskShape, type ProductType, type SystemColor } from "@/types/visualizer";
 
@@ -24,17 +26,29 @@ function colorLabel(id: SystemColor | FabricColor | undefined) {
   return color ? `${color.label} (${color.hex})` : id;
 }
 
-function productPrompt(selection: Selection) {
+function productPrompt(
+  selection: Selection,
+  bounds: { left: number; top: number; right: number; bottom: number }
+) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
+  const region = `left=${bounds.left.toFixed(3)}, top=${bounds.top.toFixed(3)}, right=${bounds.right.toFixed(3)}, bottom=${bounds.bottom.toFixed(3)}`;
 
   if (selection.productType === "ROLLUIKEN") {
-    return `Add one photorealistic exterior aluminum roller shutter (Dutch: rolluik), fully closed, installed IN the window reveal/recess. The shutter fills the selected window opening precisely, with a realistic top cassette and side guides located within the reveal. System color: ${systemColor}. Do not change the surrounding facade.`;
+    return `Image 1 is the original facade photo. Image 2 is the exact product reference for the rolluik. Image 3 is a spatial guide: the semi-transparent highlighted region is the ONLY area to modify.
+
+Place ONE SINGLE continuous photorealistic exterior aluminum roller shutter across the ENTIRE highlighted window assembly. Treat the highlighted dormer/erker as ONE opening, even when it contains multiple window panes. Do NOT place separate shutters on individual panes. The rolluik must span the full selected width and full selected height as one product, fully closed, with one continuous top cassette and continuous side guides at the outer edges. Use the product appearance from image 2. System color: ${systemColor}. The selected region in normalized image coordinates is ${region}. Preserve the original architecture, roof, brickwork, window divisions and lighting outside the highlighted region.`;
   }
+
   if (selection.productType === "ZIPSCREENS") {
-    return `Add one photorealistic exterior vertical ZIP SCREEN, fully closed, fitted tightly to the selected window opening/frame. It must follow the existing window perspective and remain inside the selected opening. System color: ${systemColor}. Fabric color: ${fabricColor}. Do not change the surrounding facade.`;
+    return `Image 1 is the original facade photo. Image 2 is the exact product reference for the zipscreen. Image 3 is a spatial guide: the semi-transparent highlighted region is the ONLY area to modify.
+
+Place ONE SINGLE continuous photorealistic exterior ZIP SCREEN across the ENTIRE highlighted window assembly. Treat the highlighted dormer/erker as ONE opening, even when it contains multiple window panes. Do NOT place separate screens on individual panes. The screen must span the full selected width and full selected height as one product, fully closed, fitted within the selected contour. Use the product appearance from image 2. System color: ${systemColor}. Fabric color: ${fabricColor}. The selected region in normalized image coordinates is ${region}. Preserve the original architecture and everything outside the highlighted region.`;
   }
-  return `Add one photorealistic folding-arm exterior awning (Dutch: knikarmscherm) with the fabric fully extended. The supplied line marks the mounting position and desired width. Mount the cassette exactly along that line against the facade and extend the fabric outward/downward in a physically plausible way. System color: ${systemColor}. Fabric color: ${fabricColor}. Preserve the existing facade, perspective and lighting.`;
+
+  return `Image 1 is the original facade photo. Image 2 is the exact product reference for the knikarmscherm. Image 3 is a spatial guide: the semi-transparent highlighted region is the ONLY area to modify.
+
+Place ONE photorealistic folding-arm exterior awning with the fabric fully extended, using the highlighted region as the placement area and the supplied line as the mounting reference. Use the product appearance from image 2. System color: ${systemColor}. Fabric color: ${fabricColor}. Preserve the existing facade and everything outside the highlighted region. The selected region in normalized image coordinates is ${region}.`;
 }
 
 function buildLineMask(width: number, height: number, coordinates: { x: number; y: number }[]) {
@@ -83,29 +97,107 @@ function getOutputUrl(output: unknown): string {
   throw new Error("Replicate heeft geen geldige afbeeldings-URL teruggegeven.");
 }
 
-async function runFill(imageBuffer: Buffer, maskPng: Buffer, prompt: string, apiKey: string) {
+async function runEdit(
+  imageBuffer: Buffer,
+  guideBuffer: Buffer,
+  referenceBuffer: Buffer,
+  prompt: string,
+  apiKey: string,
+  modelWidth: number,
+  modelHeight: number
+) {
   const replicate = new Replicate({ auth: apiKey });
-  console.log("FLUX Fill Pro starten", { imageBytes: imageBuffer.length, maskBytes: maskPng.length, prompt });
+  console.log("FLUX.2 Pro starten", {
+    imageBytes: imageBuffer.length,
+    guideBytes: guideBuffer.length,
+    referenceBytes: referenceBuffer.length,
+    prompt,
+  });
+
   try {
-    const output = await replicate.run("black-forest-labs/flux-fill-pro", {
+    const output = await replicate.run("black-forest-labs/flux-2-pro", {
       input: {
-        image: imageBuffer,
-        mask: maskPng,
         prompt,
-        steps: 50,
-        guidance: 60,
-        prompt_upsampling: false,
-        safety_tolerance: 2,
+        input_images: [imageBuffer, referenceBuffer, guideBuffer],
+        aspect_ratio: "match_input_image",
+        resolution: "1 MP",
         output_format: "jpg",
+        output_quality: 90,
+        safety_tolerance: 2,
+        prompt_upsampling: false,
       },
     });
+
     const url = getOutputUrl(output);
-    console.log("FLUX Fill Pro klaar");
+    console.log("FLUX.2 Pro klaar");
     return url;
   } catch (error) {
-    console.error("FLUX Fill Pro fout:", error);
+    console.error("FLUX.2 Pro fout:", error);
     throw new Error(error instanceof Error ? `Replicate/FLUX fout: ${error.message}` : "Onbekende Replicate/FLUX fout.");
   }
+}
+
+function maskBounds(maskRaw: Buffer, width: number, height: number) {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (maskRaw[y * width + x] === 0) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+
+  if (right < 0) {
+    return { left: 0, top: 0, right: 1, bottom: 1 };
+  }
+
+  return {
+    left: left / width,
+    top: top / height,
+    right: (right + 1) / width,
+    bottom: (bottom + 1) / height,
+  };
+}
+
+async function makeSelectionGuide(imageBuffer: Buffer, maskRaw: Buffer, width: number, height: number) {
+  // A visual guide gives FLUX.2 Pro an explicit spatial reference for the
+  // selected region. The guide is never used as the final image: after
+  // generation we composite only the exact binary mask onto the original.
+  const overlay = Buffer.alloc(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    if (maskRaw[i] > 0) {
+      overlay[i * 4] = 255;
+      overlay[i * 4 + 1] = 0;
+      overlay[i * 4 + 2] = 180;
+      overlay[i * 4 + 3] = 90;
+    }
+  }
+
+  return sharp(imageBuffer)
+    .composite([{
+      input: overlay,
+      raw: { width, height, channels: 4 },
+      blend: "over",
+    }])
+    .png()
+    .toBuffer();
+}
+
+async function loadProductReference(productType: ProductType) {
+  const files: Record<ProductType, string> = {
+    ROLLUIKEN: "rolluik.jpg",
+    ZIPSCREENS: "zipscreen.jpg",
+    KNIKARMSCHERMEN: "knikarmscherm.jpg",
+  };
+
+  const filePath = path.join(process.cwd(), "public", "products", files[productType]);
+  return readFile(filePath);
 }
 
 async function compositeOnlyInsideMask(originalBuffer: Buffer, generatedUrl: string, maskRaw: Buffer, width: number, height: number) {
@@ -151,48 +243,47 @@ export async function POST(req: Request) {
     const results: Array<{ id: string; productType: ProductType }> = [];
 
     for (const selection of selections) {
-      const { raw: maskRaw, png: maskPng } = await makeMask(width, height, selection);
+      const { raw: maskRaw } = await makeMask(width, height, selection);
+      const bounds = maskBounds(maskRaw, width, height);
+      const guideBuffer = await makeSelectionGuide(currentBuffer, maskRaw, width, height);
+      const referenceBuffer = await loadProductReference(selection.productType);
 
-      // FLUX Fill Pro requires both dimensions to be at least 256px.
-      // We may receive a small browser image, so upscale only the model input.
-      // The final AI result is always composited back onto the original-size image
-      // with the original mask, so pixels outside the selected area remain untouched.
+      // FLUX.2 Pro edits the complete image using:
+      //   image 1 = current facade
+      //   image 2 = exact product reference from the product library
+      //   image 3 = visual selection guide
+      //
+      // The exact binary SAM3 mask is still authoritative for the final
+      // composition: only selected pixels from the AI result are copied back.
       const modelMetadata = await sharp(currentBuffer).metadata();
       const sourceWidth = modelMetadata.width ?? width;
       const sourceHeight = modelMetadata.height ?? height;
-      const scale = Math.max(1, 256 / sourceWidth, 256 / sourceHeight);
-      const modelWidth = Math.max(256, Math.ceil(sourceWidth * scale));
-      const modelHeight = Math.max(256, Math.ceil(sourceHeight * scale));
 
-      let modelImage = currentBuffer;
-      let modelMask = maskPng;
+      const generatedUrl = await runEdit(
+        currentBuffer,
+        guideBuffer,
+        referenceBuffer,
+        productPrompt(selection, bounds),
+        apiKey,
+        sourceWidth,
+        sourceHeight
+      );
 
-      if (modelWidth !== sourceWidth || modelHeight !== sourceHeight) {
-        modelImage = await sharp(currentBuffer)
-          .resize(modelWidth, modelHeight, { fit: "fill" })
-          .png()
-          .toBuffer();
+      currentBuffer = await compositeOnlyInsideMask(
+        currentBuffer,
+        generatedUrl,
+        maskRaw,
+        width,
+        height
+      );
 
-        modelMask = await sharp(maskPng)
-          .resize(modelWidth, modelHeight, { fit: "fill", kernel: "nearest" })
-          .png()
-          .toBuffer();
-
-        console.log("FLUX input opgeschaald wegens minimum 256px", {
-          original: [sourceWidth, sourceHeight],
-          model: [modelWidth, modelHeight],
-        });
-      }
-
-      const generatedUrl = await runFill(modelImage, modelMask, productPrompt(selection), apiKey);
-      currentBuffer = await compositeOnlyInsideMask(currentBuffer, generatedUrl, maskRaw, width, height);
       results.push({ id: selection.id, productType: selection.productType });
     }
 
     return NextResponse.json({
       success: true,
       imageUrl: bufferToDataUri(currentBuffer, "image/png"),
-      model: "black-forest-labs/flux-fill-pro",
+      model: "black-forest-labs/flux-2-pro",
       selectionCount: selections.length,
       results,
       message: "Visualisatie succesvol gegenereerd met masked inpainting.",
