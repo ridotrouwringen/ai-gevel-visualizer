@@ -702,51 +702,25 @@ function buildMaskKozijnGroup(
     );
   };
 
-  // The drag is the only user input. SAM3 detections are supporting evidence,
-  // not the final product boundaries.
+  // The drag is the only user input.
+  //
+  // IMPORTANT: the SAM3 request already contains the drag rectangle as a
+  // positive_box prompt. Therefore the masks returned by SAM3 are the model's
+  // answer to that exact user selection. Do NOT filter them a second time by
+  // their offset/bounding box here: masks_offset can be expressed in SAM's
+  // internal image/cutout coordinate system and that can make a valid mask
+  // appear to miss the browser selection rectangle.
+  //
+  // We deliberately take ALL returned masks and turn them into ONE outer mask.
+  // This is exactly what we want for a dakkapel/erker with multiple panes.
   const selected = new Set<number>();
-
-  masks.forEach((mask, index) => {
-    const maskLeft = Math.max(0, mask.offsetX / imageWidth);
-    const maskTop = Math.max(0, mask.offsetY / imageHeight);
-    const maskRight = Math.min(1, (mask.offsetX + mask.width) / imageWidth);
-    const maskBottom = Math.min(1, (mask.offsetY + mask.height) / imageHeight);
-
-    const overlapWidth = overlapLength(
-      selection.left,
-      selection.right,
-      maskLeft,
-      maskRight
-    );
-    const overlapHeight = overlapLength(
-      selection.top,
-      selection.bottom,
-      maskTop,
-      maskBottom
-    );
-
-    const maskAreaNormalized =
-      Math.max(0, maskRight - maskLeft) *
-      Math.max(0, maskBottom - maskTop);
-
-    const overlapArea = overlapWidth * overlapHeight;
-    const overlapRatio =
-      overlapArea / Math.max(0.000001, maskAreaNormalized);
-
-    const centerX = (maskLeft + maskRight) / 2;
-    const centerY = (maskTop + maskBottom) / 2;
-    const centerInside =
-      centerX >= selection.left &&
-      centerX <= selection.right &&
-      centerY >= selection.top &&
-      centerY <= selection.bottom;
-
-    if (centerInside || overlapRatio >= 0.15) {
-      selected.add(index);
-    }
-  });
+  for (let index = 0; index < masks.length; index++) {
+    selected.add(index);
+  }
 
   if (!selected.size) {
+    // A model variant may return boxes but no raster masks. Keep the old
+    // geometry fallback for that case.
     boxes.forEach((box, index) => {
       const b = boxEdges(box);
       if (intersectsSelection(b.left, b.top, b.right, b.bottom)) {
