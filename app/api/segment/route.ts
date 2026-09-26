@@ -523,7 +523,16 @@ function convexHull(points: Point2D[]): Point2D[] {
 function collectBoxes(value: unknown, output: Box[] = []): Box[] {
   if (!value || typeof value !== "object") return output;
 
+  // SAM3 returns boxes as [[cx, cy, w, h], ...]. The previous parser
+  // descended into the four numbers and therefore never converted each
+  // four-number array into a Box.
   if (Array.isArray(value)) {
+    const directBox = toBox(value);
+    if (directBox) {
+      output.push(directBox);
+      return output;
+    }
+
     for (const item of value) collectBoxes(item, output);
     return output;
   }
@@ -693,30 +702,53 @@ function buildMaskKozijnGroup(
     );
   };
 
-  // The user's drag is the authoritative selection. We select every SAM mask
-  // that lies inside or intersects that dragged area. This is deliberately
-  // different from the old "guess the physical kozijn from one click" logic.
+  // The user's drag is the authoritative selection region.
+  // SAM3 returns each mask as a cut-out with an image-space offset. Select
+  // every mask that meaningfully overlaps the drag. This is important for
+  // open windows and dakkapellen: the visible panes/sashes can have centres
+  // outside a small drag while still belonging to the selected assembly.
   const selected = new Set<number>();
 
   masks.forEach((mask, index) => {
-    const left = mask.offsetX / imageWidth;
-    const top = mask.offsetY / imageHeight;
-    const right = Math.min(1, (mask.offsetX + mask.width) / imageWidth);
-    const bottom = Math.min(1, (mask.offsetY + mask.height) / imageHeight);
+    const maskLeft = Math.max(0, mask.offsetX / imageWidth);
+    const maskTop = Math.max(0, mask.offsetY / imageHeight);
+    const maskRight = Math.min(1, (mask.offsetX + mask.width) / imageWidth);
+    const maskBottom = Math.min(1, (mask.offsetY + mask.height) / imageHeight);
 
-    const centerX = (left + right) / 2;
-    const centerY = (top + bottom) / 2;
+    const overlapWidth = overlapLength(
+      selection.left,
+      selection.right,
+      maskLeft,
+      maskRight
+    );
+    const overlapHeight = overlapLength(
+      selection.top,
+      selection.bottom,
+      maskTop,
+      maskBottom
+    );
 
-    // The drag is a guide, not the final mask boundary. Prefer masks whose
-    // center lies inside the user's selection. This prevents a large drag
-    // outside a window from pulling in neighbouring/partially intersecting
-    // SAM detections.
-    if (
+    const maskAreaNormalized =
+      Math.max(0, maskRight - maskLeft) *
+      Math.max(0, maskBottom - maskTop);
+
+    const overlapArea = overlapWidth * overlapHeight;
+    const overlapRatio =
+      overlapArea / Math.max(0.000001, maskAreaNormalized);
+
+    const centerX = (maskLeft + maskRight) / 2;
+    const centerY = (maskTop + maskBottom) / 2;
+    const centerInside =
       centerX >= selection.left &&
       centerX <= selection.right &&
       centerY >= selection.top &&
-      centerY <= selection.bottom
-    ) {
+      centerY <= selection.bottom;
+
+    // Normal case: the mask centre is inside the drag.
+    // Partial-overlap case: still accept it when at least 15% of its
+    // bounding rectangle lies in the drag. This handles a drag that crosses
+    // an outer frame, an opening sash, or a dakkapel edge.
+    if (centerInside || overlapRatio >= 0.15) {
       selected.add(index);
     }
   });
