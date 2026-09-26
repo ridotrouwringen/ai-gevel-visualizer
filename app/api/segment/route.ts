@@ -685,7 +685,7 @@ function maskArea(mask: MaskCutout) {
 
 function buildMaskKozijnGroup(
   masks: MaskCutout[],
-  polygons: Array<Point2D | null>[],
+  polygons: Array<Point2D[] | null>,
   boxes: Box[],
   selection: { left: number; top: number; right: number; bottom: number },
   imageWidth: number,
