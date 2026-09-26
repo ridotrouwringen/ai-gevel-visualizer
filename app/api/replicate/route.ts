@@ -152,7 +152,39 @@ export async function POST(req: Request) {
 
     for (const selection of selections) {
       const { raw: maskRaw, png: maskPng } = await makeMask(width, height, selection);
-      const generatedUrl = await runFill(currentBuffer, maskPng, productPrompt(selection), apiKey);
+
+      // FLUX Fill Pro requires both dimensions to be at least 256px.
+      // We may receive a small browser image, so upscale only the model input.
+      // The final AI result is always composited back onto the original-size image
+      // with the original mask, so pixels outside the selected area remain untouched.
+      const modelMetadata = await sharp(currentBuffer).metadata();
+      const sourceWidth = modelMetadata.width ?? width;
+      const sourceHeight = modelMetadata.height ?? height;
+      const scale = Math.max(1, 256 / sourceWidth, 256 / sourceHeight);
+      const modelWidth = Math.max(256, Math.ceil(sourceWidth * scale));
+      const modelHeight = Math.max(256, Math.ceil(sourceHeight * scale));
+
+      let modelImage = currentBuffer;
+      let modelMask = maskPng;
+
+      if (modelWidth !== sourceWidth || modelHeight !== sourceHeight) {
+        modelImage = await sharp(currentBuffer)
+          .resize(modelWidth, modelHeight, { fit: "fill" })
+          .png()
+          .toBuffer();
+
+        modelMask = await sharp(maskPng)
+          .resize(modelWidth, modelHeight, { fit: "fill", kernel: "nearest" })
+          .png()
+          .toBuffer();
+
+        console.log("FLUX input opgeschaald wegens minimum 256px", {
+          original: [sourceWidth, sourceHeight],
+          model: [modelWidth, modelHeight],
+        });
+      }
+
+      const generatedUrl = await runFill(modelImage, modelMask, productPrompt(selection), apiKey);
       currentBuffer = await compositeOnlyInsideMask(currentBuffer, generatedUrl, maskRaw, width, height);
       results.push({ id: selection.id, productType: selection.productType });
     }
