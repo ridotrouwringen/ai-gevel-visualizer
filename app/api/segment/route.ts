@@ -162,6 +162,35 @@ function getImageDimensions(dataUrl: string) {
   return null;
 }
 
+function getStructuredArray(value: unknown): {
+  data: (number | boolean)[] | null;
+  shape: number[];
+} | null {
+  if (Array.isArray(value)) {
+    const data = flattenNumeric(value);
+    if (!data) return null;
+    const shape: number[] = [];
+    let current: unknown = value;
+    while (Array.isArray(current)) {
+      shape.push(current.length);
+      current = current.length ? current[0] : undefined;
+    }
+    return { data, shape };
+  }
+
+  if (!value || typeof value !== "object") return null;
+  const object = value as Record<string, unknown>;
+  const raw = object.data ?? object.values ?? object.array;
+  if (!Array.isArray(raw)) return null;
+
+  const data = flattenNumeric(raw);
+  if (!data) return null;
+  const shape = Array.isArray(object.shape)
+    ? object.shape.filter((n): n is number => typeof n === "number")
+    : [];
+  return { data, shape };
+}
+
 function collectMaskCutouts(value: unknown, output: MaskCutout[] = []): MaskCutout[] {
   if (!value || typeof value !== "object") return output;
 
@@ -172,34 +201,42 @@ function collectMaskCutouts(value: unknown, output: MaskCutout[] = []): MaskCuto
 
   const object = value as Record<string, unknown>;
 
-  // SAM3's current output uses parallel arrays:
-  // masks: [N][height][width], masks_offset: [N][x,y].
-  // Convert those directly into our internal cutout representation.
-  if (Array.isArray(object.masks) && Array.isArray(object.masks_offset)) {
-    const masks = object.masks;
-    const offsets = object.masks_offset;
-    for (let i = 0; i < masks.length; i++) {
-      const raw = masks[i];
-      const offset = offsets[i];
-      if (!Array.isArray(raw) || !raw.length || !Array.isArray(offset) || offset.length < 2) continue;
+  // SAM3 normally returns masks and masks_offset as parallel arrays.
+  // Depending on the JSON serialization they can also be wrapped as
+  // {data, shape}; support both forms.
+  const masksValue = object.masks;
+  const offsetsValue = object.masks_offset ?? object.mask_offsets;
 
-      const height = raw.length;
-      const firstRow = raw[0];
-      const width = Array.isArray(firstRow) ? firstRow.length : 0;
-      const offsetX = typeof offset[0] === "number" ? offset[0] : null;
-      const offsetY = typeof offset[1] === "number" ? offset[1] : null;
-      if (!width || offsetX === null || offsetY === null) continue;
+  if (masksValue !== undefined && offsetsValue !== undefined) {
+    const masksArray = getStructuredArray(masksValue);
+    const offsetsArray = getStructuredArray(offsetsValue);
 
-      const data = flattenNumeric(raw);
-      if (!data || data.length < width * height) continue;
+    if (masksArray && offsetsArray) {
+      const shape = masksArray.shape;
+      const offsets = offsetsArray.data ?? [];
 
-      output.push({
-        data,
-        width,
-        height,
-        offsetX,
-        offsetY,
-      });
+      if (shape.length >= 3) {
+        const count = shape[0];
+        const height = shape[1];
+        const width = shape[2];
+        const pixelsPerMask = width * height;
+
+        if (count > 0 && width > 0 && height > 0 && offsets.length >= count * 2) {
+          for (let i = 0; i < count; i++) {
+            const data = masksArray.data!.slice(
+              i * pixelsPerMask,
+              (i + 1) * pixelsPerMask
+            );
+            if (data.length !== pixelsPerMask) continue;
+
+            const offsetX = Number(offsets[i * 2]);
+            const offsetY = Number(offsets[i * 2 + 1]);
+            if (!Number.isFinite(offsetX) || !Number.isFinite(offsetY)) continue;
+
+            output.push({ data, width, height, offsetX, offsetY });
+          }
+        }
+      }
     }
   }
 
@@ -287,7 +324,6 @@ function collectMaskCutouts(value: unknown, output: MaskCutout[] = []): MaskCuto
 
   return output;
 }
-
 function maskToPolygon(mask: MaskCutout, imageWidth = 1, imageHeight = 1): Point2D[] | null {
   // Keep the mask in its original raster form. Do not turn the low-resolution
   // SAM mask directly into a polygon: that creates the visible stair-step /
