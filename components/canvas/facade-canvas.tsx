@@ -248,9 +248,12 @@ export function FacadeCanvas() {
     const width = Math.abs(end.x - start.x);
     const height = Math.abs(end.y - start.y);
 
-    // A tiny accidental touch is ignored. Everything else is selected by
-    // dragging, so desktop and mobile use exactly the same interaction.
-    if (Math.max(width, height) < 0.025) return;
+    // A click is a valid selection too. Turn it into a small selection box
+    // around the click so SAM3 receives the same kind of visual prompt as a drag.
+    const isClick = Math.max(width, height) < 0.025;
+    const clickHalfSize = 0.02;
+    const clickX = (start.x + end.x) / 2;
+    const clickY = (start.y + end.y) / 2;
 
     if (activeProduct === 'KNIKARMSCHERMEN') {
       const y = start.y;
@@ -271,12 +274,19 @@ export function FacadeCanvas() {
     setSegmentError(null);
     setSegmentationPreview(null);
 
-    const selection = {
-      left: Math.min(start.x, end.x),
-      top: Math.min(start.y, end.y),
-      right: Math.max(start.x, end.x),
-      bottom: Math.max(start.y, end.y)
-    };
+    const selection = isClick
+      ? {
+          left: Math.max(0, clickX - clickHalfSize),
+          top: Math.max(0, clickY - clickHalfSize),
+          right: Math.min(1, clickX + clickHalfSize),
+          bottom: Math.min(1, clickY + clickHalfSize)
+        }
+      : {
+          left: Math.min(start.x, end.x),
+          top: Math.min(start.y, end.y),
+          right: Math.max(start.x, end.x),
+          bottom: Math.max(start.y, end.y)
+        };
 
     try {
       const response = await fetch('/api/segment', {
