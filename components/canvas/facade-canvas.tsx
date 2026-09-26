@@ -89,10 +89,10 @@ export function FacadeCanvas() {
           mask.rasterMasks.forEach((raster) => {
             const local = maskCtx.createImageData(raster.width, raster.height);
             for (let i = 0; i < raster.width * raster.height; i++) {
-              const alpha = raster.data[i] > 0 ? 102 : 0;
-              local.data[i * 4] = 255;
-              local.data[i * 4 + 1] = 255;
-              local.data[i * 4 + 2] = 255;
+              const alpha = raster.data[i] > 0 ? 115 : 0;
+              local.data[i * 4] = 0;
+              local.data[i * 4 + 1] = 0;
+              local.data[i * 4 + 2] = 0;
               local.data[i * 4 + 3] = alpha;
             }
             const localCanvas = document.createElement('canvas');
