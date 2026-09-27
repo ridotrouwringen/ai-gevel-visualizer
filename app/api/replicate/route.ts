@@ -102,9 +102,7 @@ async function runEdit(
   guideBuffer: Buffer,
   referenceBuffer: Buffer,
   prompt: string,
-  apiKey: string,
-  modelWidth: number,
-  modelHeight: number
+  apiKey: string
 ) {
   const replicate = new Replicate({ auth: apiKey });
   console.log("FLUX.2 Pro starten", {
@@ -135,6 +133,44 @@ async function runEdit(
     console.error("FLUX.2 Pro fout:", error);
     throw new Error(error instanceof Error ? `Replicate/FLUX fout: ${error.message}` : "Onbekende Replicate/FLUX fout.");
   }
+}
+
+function maskCropBounds(
+  maskRaw: Buffer,
+  width: number,
+  height: number,
+  paddingRatio: number
+) {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (maskRaw[y * width + x] === 0) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+
+  if (right < 0) {
+    return { left: 0, top: 0, right: width, bottom: height };
+  }
+
+  const maskWidth = right - left + 1;
+  const maskHeight = bottom - top + 1;
+  const padX = Math.max(16, Math.round(maskWidth * paddingRatio));
+  const padY = Math.max(16, Math.round(maskHeight * paddingRatio));
+
+  return {
+    left: Math.max(0, left - padX),
+    top: Math.max(0, top - padY),
+    right: Math.min(width, right + 1 + padX),
+    bottom: Math.min(height, bottom + 1 + padY),
+  };
 }
 
 function maskBounds(maskRaw: Buffer, width: number, height: number) {
@@ -245,37 +281,77 @@ export async function POST(req: Request) {
     for (const selection of selections) {
       const { raw: maskRaw } = await makeMask(width, height, selection);
       const bounds = maskBounds(maskRaw, width, height);
-      const guideBuffer = await makeSelectionGuide(currentBuffer, maskRaw, width, height);
       const referenceBuffer = await loadProductReference(selection.productType);
 
-      // FLUX.2 Pro edits the complete image using:
-      //   image 1 = current facade
-      //   image 2 = exact product reference from the product library
-      //   image 3 = visual selection guide
+      // IMPORTANT:
+      // Do not give FLUX.2 Pro the complete facade as its editing canvas.
+      // FLUX is an image-generation/editing model, not a pixel-perfect
+      // inpainting engine. If it sees the entire facade, it can reinterpret
+      // the whole photograph even when the prompt says to change one area.
       //
-      // The exact binary SAM3 mask is still authoritative for the final
-      // composition: only selected pixels from the AI result are copied back.
-      const modelMetadata = await sharp(currentBuffer).metadata();
-      const sourceWidth = modelMetadata.width ?? width;
-      const sourceHeight = modelMetadata.height ?? height;
+      // Instead we crop a small context window around the exact SAM3 mask.
+      // FLUX only sees that local area. The final result is then composited
+      // back into the current facade using the exact binary mask.
+      const crop = maskCropBounds(maskRaw, width, height, 0.18);
+      const cropWidth = crop.right - crop.left;
+      const cropHeight = crop.bottom - crop.top;
+
+      const cropBuffer = await sharp(currentBuffer)
+        .extract({
+          left: crop.left,
+          top: crop.top,
+          width: cropWidth,
+          height: cropHeight,
+        })
+        .png()
+        .toBuffer();
+
+      const cropMaskRaw = await sharp(maskRaw, {
+        raw: { width, height, channels: 1 },
+      })
+        .extract({
+          left: crop.left,
+          top: crop.top,
+          width: cropWidth,
+          height: cropHeight,
+        })
+        .raw()
+        .toBuffer();
+
+      const guideBuffer = await makeSelectionGuide(
+        cropBuffer,
+        cropMaskRaw,
+        cropWidth,
+        cropHeight
+      );
 
       const generatedUrl = await runEdit(
-        currentBuffer,
+        cropBuffer,
         guideBuffer,
         referenceBuffer,
         productPrompt(selection, bounds),
-        apiKey,
-        sourceWidth,
-        sourceHeight
+        apiKey
       );
 
-      currentBuffer = await compositeOnlyInsideMask(
-        currentBuffer,
+      const editedCrop = await compositeOnlyInsideMask(
+        cropBuffer,
         generatedUrl,
-        maskRaw,
-        width,
-        height
+        cropMaskRaw,
+        cropWidth,
+        cropHeight
       );
+
+      // Paste only this local edited crop back into the current facade.
+      // Pixels outside the crop are never touched. Pixels inside the crop but
+      // outside the exact mask are also the original pixels from cropBuffer.
+      currentBuffer = await sharp(currentBuffer)
+        .composite([{
+          input: editedCrop,
+          left: crop.left,
+          top: crop.top,
+        }])
+        .png()
+        .toBuffer();
 
       results.push({ id: selection.id, productType: selection.productType });
     }
