@@ -47,36 +47,36 @@ function productPrompt(selection: Selection) {
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
   if (selection.productType === "ROLLUIKEN") {
-    return `IMAGE 1 is the original facade crop corresponding exactly to the user's selected area.
-IMAGE 2 is the actual product reference photo for the roller shutter.
+    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE.
 
-Edit IMAGE 1 by replacing the existing window/facade content with ONE SINGLE continuous exterior aluminum roller shutter.
-The entire IMAGE 1 is the selected target area. The product must occupy this selected area as one single rolluik, not one product per window pane.
-The rolluik is FULLY CLOSED.
-Use IMAGE 2 as the physical product reference for the shutter design, cassette, side guides, slats, proportions and material appearance.
+CRITICAL: IMAGE 1 is already the exact target rectangle chosen by the user. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
+
+The user's rectangle is the installation area. Fill the ENTIRE IMAGE 1 from its left edge to its right edge and from its top edge to its bottom edge with ONE SINGLE continuous exterior aluminum roller shutter.
+
+ONE product only. ONE continuous rolluik across the complete selected rectangle. FULLY CLOSED. No separate shutters for panes. No visible original window glass or internal window divisions inside the selected rectangle.
+
+Use IMAGE 2 ONLY as the physical product reference for the roller shutter design, cassette, side guides, slats, proportions and material appearance.
 System color: ${systemColor}.
 
-Preserve the real perspective, camera angle, lighting and geometry of IMAGE 1.
-Do not add multiple shutters.
-Do not invent a second window or change the surrounding architecture.
-Return a photorealistic facade detail with exactly one installed rolluik filling the selected target area.`;
+Keep only the real perspective, camera angle and lighting relationship from IMAGE 1. Do not reinterpret the selection.
+The output must be a photorealistic installed rolluik that reaches all four edges of the selected rectangle.`;
   }
 
   if (selection.productType === "ZIPSCREENS") {
-    return `IMAGE 1 is the original facade crop corresponding exactly to the user's selected area.
-IMAGE 2 is the actual product reference photo for the ZIP SCREEN.
+    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE.
 
-Edit IMAGE 1 by replacing the existing window/facade content with ONE SINGLE continuous exterior ZIP SCREEN.
-The entire IMAGE 1 is the selected target area. The product must occupy this selected area as one single screen, not one product per window pane.
-The ZIP SCREEN is FULLY CLOSED.
-Use IMAGE 2 as the physical product reference for the screen construction, side guides, cassette, proportions and material appearance.
+CRITICAL: IMAGE 1 is already the exact target rectangle chosen by the user. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
+
+The user's rectangle is the installation area. Fill the ENTIRE IMAGE 1 from its left edge to its right edge and from its top edge to its bottom edge with ONE SINGLE continuous exterior ZIP SCREEN.
+
+ONE product only. ONE continuous screen across the complete selected rectangle. FULLY CLOSED. No separate screens for panes. No visible original window glass or internal window divisions inside the selected rectangle.
+
+Use IMAGE 2 ONLY as the physical product reference for the screen construction, side guides, cassette, proportions and material appearance.
 System color: ${systemColor}.
 Fabric color: ${fabricColor}.
 
-Preserve the real perspective, camera angle, lighting and geometry of IMAGE 1.
-Do not add multiple screens.
-Do not invent a second window or change the surrounding architecture.
-Return a photorealistic facade detail with exactly one installed ZIP SCREEN filling the selected target area.`;
+Keep only the real perspective, camera angle and lighting relationship from IMAGE 1. Do not reinterpret the selection.
+The output must be a photorealistic installed ZIP SCREEN that reaches all four edges of the selected rectangle.`;
   }
 
   return `IMAGE 1 is the original facade crop at the selected awning position.
