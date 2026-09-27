@@ -389,26 +389,25 @@ export async function POST(req: Request) {
         .png()
         .toBuffer();
 
-      // Extract the corresponding part of the full-size mask.
+      // Extract the exact selected part of the full-size mask.
       const localMaskRaw = Buffer.alloc(
-        (contextBounds.right - bounds.left) * (contextBounds.bottom - bounds.top)
+        (bounds.right - bounds.left) * (bounds.bottom - bounds.top)
       );
 
-      for (let y = contextBounds.top; y < contextBounds.bottom; y++) {
-        const sourceStart = y * width + contextBounds.left;
-        const sourceEnd = sourceStart + (contextBounds.right - contextBounds.left);
-        const targetStart = (y - contextBounds.top) * (contextBounds.right - contextBounds.left);
+      for (let y = bounds.top; y < bounds.bottom; y++) {
+        const sourceStart = y * width + bounds.left;
+        const sourceEnd = sourceStart + (bounds.right - bounds.left);
+        const targetStart = (y - bounds.top) * (bounds.right - bounds.left);
         maskRaw.copy(localMaskRaw, targetStart, sourceStart, sourceEnd);
       }
 
-      // Hard boundary:
-      // pixels outside the user's exact selection are transparent.
-      // Therefore the original facade is guaranteed to remain underneath.
+      // Hard boundary: outside the user's exact selection the original facade
+      // remains untouched.
       const generatedMaskedCrop = await sharp(generatedCrop)
         .joinChannel(localMaskRaw, {
           raw: {
-            width: contextBounds.right - contextBounds.left,
-            height: contextBounds.bottom - contextBounds.top,
+            width: bounds.right - bounds.left,
+            height: bounds.bottom - bounds.top,
             channels: 1,
           },
         })
@@ -419,8 +418,8 @@ export async function POST(req: Request) {
         .composite([
           {
             input: generatedMaskedCrop,
-            left: contextBounds.left,
-            top: contextBounds.top,
+            left: bounds.left,
+            top: bounds.top,
             blend: "over",
           },
         ])
