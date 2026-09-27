@@ -26,10 +26,7 @@ function colorLabel(id: SystemColor | FabricColor | undefined) {
   return color ? `${color.label} (${color.hex})` : id;
 }
 
-function productPrompt(
-  selection: Selection,
-  bounds: { left: number; top: number; right: number; bottom: number }
-) {
+function productPrompt(selection: Selection) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
   if (selection.productType === "ROLLUIKEN") {
@@ -251,7 +248,6 @@ export async function POST(req: Request) {
 
     for (const selection of selections) {
       const { raw: maskRaw } = await makeMask(width, height, selection);
-      const bounds = maskBounds(maskRaw, width, height);
       const referenceBuffer = await loadProductReference(selection.productType);
 
       // Keep the user's original image as the canonical canvas.
@@ -289,7 +285,7 @@ export async function POST(req: Request) {
       const generatedUrl = await runMaskedEdit(
         referenceCanvas.image,
         referenceCanvas.mask,
-        productPrompt(selection, bounds),
+        productPrompt(selection),
         apiKey
       );
 
