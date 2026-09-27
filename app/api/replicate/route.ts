@@ -212,7 +212,7 @@ function getOutputUrl(output: unknown): string {
 
 async function loadProductReference(productType: ProductType) {
   const files: Record<ProductType, string> = {
-    ROLLUIKEN: "rolluik.jpg",
+    ROLLUIKEN: "rolluik.png",
     ZIPSCREENS: "zipscreen.jpg",
     KNIKARMSCHERMEN: "knikarmscherm.jpg",
   };
