@@ -236,17 +236,46 @@ async function loadProductReference(productType: ProductType) {
   return readFile(filePath);
 }
 
-async function compositeOnlyInsideMask(originalBuffer: Buffer, generatedUrl: string, maskRaw: Buffer, width: number, height: number) {
+async function compositeGeneratedOnlyInsideMask(
+  originalBuffer: Buffer,
+  generatedUrl: string,
+  maskRaw: Buffer,
+  maskWidth: number,
+  maskHeight: number,
+  offsetX: number,
+  offsetY: number
+) {
   const generatedResponse = await fetch(generatedUrl);
-  if (!generatedResponse.ok) throw new Error(`Het AI-resultaat kon niet worden opgehaald (HTTP ${generatedResponse.status}).`);
+  if (!generatedResponse.ok) {
+    throw new Error(`Het AI-resultaat kon niet worden opgehaald (HTTP ${generatedResponse.status}).`);
+  }
+
   const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
-  const generatedRgba = await sharp(generatedBuffer)
-    .resize(width, height, { fit: "fill" })
+
+  // Critical clone guarantee:
+  // - FLUX may redraw the entire crop because it has no native mask input.
+  // - We therefore NEVER paste the generated crop back as an image.
+  // - We turn the exact user-drawn mask into the alpha channel of the
+  //   generated pixels and composite only those pixels onto the original.
+  // Everything outside the mask remains byte-for-byte from originalBuffer.
+  const generatedInsideMask = await sharp(generatedBuffer)
+    .resize(maskWidth, maskHeight, { fit: "fill" })
     .removeAlpha()
-    .joinChannel(maskRaw, { raw: { width, height, channels: 1 } })
+    .joinChannel(maskRaw, {
+      raw: { width: maskWidth, height: maskHeight, channels: 1 },
+    })
     .png()
     .toBuffer();
-  return sharp(originalBuffer).composite([{ input: generatedRgba, blend: "over" }]).png().toBuffer();
+
+  return sharp(originalBuffer)
+    .composite([{
+      input: generatedInsideMask,
+      left: offsetX,
+      top: offsetY,
+      blend: "over",
+    }])
+    .png()
+    .toBuffer();
 }
 
 export async function POST(req: Request) {
@@ -333,25 +362,18 @@ export async function POST(req: Request) {
         apiKey
       );
 
-      const editedCrop = await compositeOnlyInsideMask(
-        cropBuffer,
+      // IMPORTANT: never paste the generated crop itself back into the
+      // facade. Only pixels under the exact drag rectangle are allowed to
+      // come from FLUX. Everything else stays from the original/current image.
+      currentBuffer = await compositeGeneratedOnlyInsideMask(
+        currentBuffer,
         generatedUrl,
         cropMaskRaw,
         cropWidth,
-        cropHeight
+        cropHeight,
+        crop.left,
+        crop.top
       );
-
-      // Paste only this local edited crop back into the current facade.
-      // Pixels outside the crop are never touched. Pixels inside the crop but
-      // outside the exact mask are also the original pixels from cropBuffer.
-      currentBuffer = await sharp(currentBuffer)
-        .composite([{
-          input: editedCrop,
-          left: crop.left,
-          top: crop.top,
-        }])
-        .png()
-        .toBuffer();
 
       results.push({ id: selection.id, productType: selection.productType });
     }
