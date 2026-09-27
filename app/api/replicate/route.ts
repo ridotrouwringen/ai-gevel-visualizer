@@ -352,35 +352,6 @@ async function runWithConcurrency<T>(
   await Promise.all(Array.from({ length: workerCount }, () => workerLoop()));
 }
 
-async function compositeGenerated(
-  originalBuffer: Buffer,
-  prepared: PreparedSelection,
-  generatedBuffer: Buffer
-) {
-  const { bounds, maskRaw } = prepared;
-  const localWidth = bounds.right - bounds.left;
-  const localHeight = bounds.bottom - bounds.top;
-
-  const generatedCrop = await sharp(generatedBuffer)
-    .resize(localWidth, localHeight, { fit: "fill" })
-    .removeAlpha()
-    .png()
-    .toBuffer();
-
-  const localMaskRaw = Buffer.alloc(localWidth * localHeight);
-
-  for (let y = bounds.top; y < bounds.bottom; y++) {
-    const sourceStart = y * (maskRaw.length / (prepared.bounds.bottom > 0 ? (maskRaw.length / (prepared.bounds.bottom - prepared.bounds.top)) : 1));
-    // The exact source stride is the full image width; calculate it from the mask size.
-    const fullWidth = Math.round(maskRaw.length / (prepared.bounds.bottom - prepared.bounds.top + (0)));
-    void sourceStart;
-    void fullWidth;
-  }
-
-  // The full-size mask width is not stored on PreparedSelection, so derive it from
-  // the original image dimensions passed to the worker below instead.
-  return { generatedCrop, localMaskRaw };
-}
 
 export async function POST(req: Request) {
   try {
