@@ -14,7 +14,7 @@ import {
 } from "@/types/visualizer";
 
 export const maxDuration = 120;
-const GENERATION_CONCURRENCY = 3;
+const GENERATION_CONCURRENCY = 1;
 
 type RasterMask = NonNullable<MaskShape["rasterMasks"]>[number];
 type Selection = Pick<
@@ -249,7 +249,7 @@ async function runProductEdit(
 ) {
   const replicate = new Replicate({ auth: apiKey });
 
-  console.log("Nano Banana Pro starten", {
+  console.log("Nano Banana starten", {
     cropBytes: selectedCrop.length,
     referenceBytes: productReference.length,
     guideBytes: geometryGuide.length,
@@ -257,26 +257,24 @@ async function runProductEdit(
   });
 
   try {
-    const output = await replicate.run("google/nano-banana-pro", {
+    const output = await replicate.run("google/nano-banana", {
       input: {
         prompt,
         image_input: [selectedCrop, productReference, geometryGuide],
         aspect_ratio: "match_input_image",
-        resolution: "2K",
         output_format: "png",
-        allow_fallback_model: true,
       },
     });
 
     const url = getOutputUrl(output);
-    console.log("Nano Banana Pro klaar");
+    console.log("Nano Banana klaar");
     return url;
   } catch (error) {
-    console.error("Nano Banana Pro fout:", error);
+    console.error("Nano Banana fout:", error);
     throw new Error(
       error instanceof Error
-        ? `Replicate/Nano Banana Pro fout: ${error.message}`
-        : "Onbekende Replicate/Nano Banana Pro fout."
+        ? `Replicate/Nano Banana fout: ${error.message}`
+        : "Onbekende Replicate/Nano Banana fout."
     );
   }
 }
@@ -352,7 +350,6 @@ async function runWithConcurrency<T>(
   await Promise.all(Array.from({ length: workerCount }, () => workerLoop()));
 }
 
-
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -405,6 +402,7 @@ export async function POST(req: Request) {
       height,
       selections: selections.length,
       concurrency: GENERATION_CONCURRENCY,
+      model: "google/nano-banana",
     });
 
     const preparedSelections = await Promise.all(
@@ -503,7 +501,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       imageUrl: bufferToDataUri(currentBuffer, "image/png"),
-      model: "google/nano-banana-pro",
+      model: "google/nano-banana",
       selectionCount: selections.length,
       results,
       message: "Visualisatie gegenereerd op basis van de exacte selectie.",
