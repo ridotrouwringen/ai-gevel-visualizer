@@ -330,6 +330,7 @@ export function FacadeCanvas() {
       systemColor: activeSystemColor,
       fabricColor: activeFabricColor || undefined
     });
+  };
 
   if (!originalImage) {
     return (
