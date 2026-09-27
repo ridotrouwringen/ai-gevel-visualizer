@@ -47,7 +47,7 @@ function productPrompt(selection: Selection) {
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
   if (selection.productType === "ROLLUIKEN") {
-    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF EXACTLY THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a BLACK/WHITE GEOMETRY GUIDE for IMAGE 1.
+    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF EXACTLY THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a PRODUCT CONSTRUCTION BLUEPRINT for IMAGE 1.
 
 CRITICAL: IMAGE 1 itself is the exact target area chosen by the user. Do not search for or infer another window inside it. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
 
@@ -57,7 +57,7 @@ Replace the ENTIRE IMAGE 1 rectangle with ONE SINGLE complete exterior aluminum 
 
 ONE product only. ONE continuous rolluik across the complete selected rectangle. FULLY CLOSED. No separate shutters for panes. No visible original window glass or internal window divisions inside the selected rectangle.
 
-Use IMAGE 2 as the physical product reference, but prioritize the complete PRODUCT CONSTRUCTION: TOP CASSETTE + LEFT SIDE GUIDE + CLOSED SLAT CURTAIN + RIGHT SIDE GUIDE. Reconstruct all four visible structural elements as one complete rolluik system. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 only for exact geometry.
+Use IMAGE 2 as the physical product reference, but prioritize the complete PRODUCT CONSTRUCTION: TOP CASSETTE + LEFT SIDE GUIDE + CLOSED SLAT CURTAIN + RIGHT SIDE GUIDE. Reconstruct all four visible structural elements as one complete rolluik system. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 as the physical construction blueprint. The outer boundary of IMAGE 1 remains the user's exact selection.
 System color: ${systemColor}.
 
 Keep only the real perspective, camera angle and lighting relationship from IMAGE 1. Do not reinterpret the selection.
@@ -65,7 +65,7 @@ The output must reach the EXACT four edges of IMAGE 1. The cassette MUST touch t
   }
 
   if (selection.productType === "ZIPSCREENS") {
-    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF EXACTLY THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a BLACK/WHITE GEOMETRY GUIDE for IMAGE 1.
+    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF EXACTLY THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a PRODUCT CONSTRUCTION BLUEPRINT for IMAGE 1.
 
 CRITICAL: IMAGE 1 itself is the exact target area chosen by the user. Do not search for or infer another window inside it. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
 
@@ -73,7 +73,7 @@ The WHITE area in IMAGE 3 is the installation area. Fill that ENTIRE WHITE area 
 
 ONE product only. ONE continuous screen across the complete selected rectangle. FULLY CLOSED. No separate screens for panes. No visible original window glass or internal window divisions inside the selected rectangle.
 
-Use IMAGE 2 ONLY as the physical product reference for the screen construction, side guides, cassette, proportions and material appearance. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 only for exact geometry.
+Use IMAGE 2 ONLY as the physical product reference for the screen construction, side guides, cassette, proportions and material appearance. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 as the physical construction blueprint. The outer boundary of IMAGE 1 remains the user's exact selection.
 System color: ${systemColor}.
 Fabric color: ${fabricColor}.
 
@@ -177,24 +177,56 @@ async function makeGeometryGuide(
   maskRaw: Buffer,
   imageWidth: number,
   imageHeight: number,
-  bounds: { left: number; top: number; right: number; bottom: number }
+  bounds: { left: number; top: number; right: number; bottom: number },
+  productType: ProductType
 ) {
   const width = bounds.right - bounds.left;
   const height = bounds.bottom - bounds.top;
-  const local = Buffer.alloc(width * height);
+  const channels = 3;
+  const local = Buffer.alloc(width * height * channels, 245);
 
-  for (let y = bounds.top; y < bounds.bottom; y++) {
-    const sourceStart = y * imageWidth + bounds.left;
-    const sourceEnd = sourceStart + width;
-    const targetStart = (y - bounds.top) * width;
-    maskRaw.copy(local, targetStart, sourceStart, sourceEnd);
+  const setPixel = (x: number, y: number, r: number, g: number, b: number) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    const i = (y * width + x) * channels;
+    local[i] = r; local[i + 1] = g; local[i + 2] = b;
+  };
+
+  const fillRect = (x0: number, y0: number, x1: number, y1: number, r: number, g: number, b: number) => {
+    for (let y = Math.max(0, y0); y < Math.min(height, y1); y++) {
+      for (let x = Math.max(0, x0); x < Math.min(width, x1); x++) setPixel(x, y, r, g, b);
+    }
+  };
+
+  if (productType === "ROLLUIKEN" || productType === "ZIPSCREENS") {
+    // Fixed construction blueprint INSIDE the already-fixed user rectangle.
+    const cassetteHeight = Math.max(2, Math.round(height * 0.11));
+    const guideWidth = Math.max(2, Math.round(width * 0.035));
+    fillRect(0, cassetteHeight, width, height, 205, 205, 205);
+    fillRect(0, 0, width, cassetteHeight, 90, 90, 90);
+    fillRect(0, cassetteHeight, guideWidth, height, 65, 65, 65);
+    fillRect(width - guideWidth, cassetteHeight, width, height, 65, 65, 65);
+
+    const slatStep = Math.max(3, Math.round(height * 0.025));
+    for (let y = cassetteHeight + slatStep; y < height; y += slatStep) {
+      for (let x = guideWidth; x < width - guideWidth; x++) setPixel(x, y, 125, 125, 125);
+    }
+  } else {
+    const localMask = Buffer.alloc(width * height);
+    for (let y = bounds.top; y < bounds.bottom; y++) {
+      const sourceStart = y * imageWidth + bounds.left;
+      const sourceEnd = sourceStart + width;
+      const targetStart = (y - bounds.top) * width;
+      maskRaw.copy(localMask, targetStart, sourceStart, sourceEnd);
+    }
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const v = localMask[y * width + x] > 0 ? 255 : 245;
+        setPixel(x, y, v, v, v);
+      }
+    }
   }
 
-  return sharp(local, {
-    raw: { width, height, channels: 1 },
-  })
-    .png()
-    .toBuffer();
+  return sharp(local, { raw: { width, height, channels: 3 } }).png().toBuffer();
 }
 
 function getOutputUrl(output: unknown): string {
@@ -357,7 +389,8 @@ export async function POST(req: Request) {
         maskRaw,
         width,
         height,
-        bounds
+        bounds,
+        selection.productType
       );
 
       const referenceBuffer = await loadProductReference(selection.productType);
