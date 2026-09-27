@@ -289,9 +289,9 @@ export async function POST(req: Request) {
       // inpainting engine. If it sees the entire facade, it can reinterpret
       // the whole photograph even when the prompt says to change one area.
       //
-      // Instead we crop a small context window around the exact SAM3 mask.
-      // FLUX only sees that local area. The final result is then composited
-      // back into the current facade using the exact binary mask.
+      // Instead we crop a small context window around the exact user-drawn
+      // rectangle mask. FLUX only sees that local area. The final result is then composited
+      // back into the current facade using that exact binary mask.
       const crop = maskCropBounds(maskRaw, width, height, 0.18);
       const cropWidth = crop.right - crop.left;
       const cropHeight = crop.bottom - crop.top;
