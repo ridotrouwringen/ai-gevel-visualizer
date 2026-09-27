@@ -35,20 +35,20 @@ function productPrompt(
   const region = `left=${bounds.left.toFixed(3)}, top=${bounds.top.toFixed(3)}, right=${bounds.right.toFixed(3)}, bottom=${bounds.bottom.toFixed(3)}`;
 
   if (selection.productType === "ROLLUIKEN") {
-    return `Image 1 is the original facade photo. Image 2 is the exact product reference for the rolluik. Image 3 is a spatial guide: the semi-transparent highlighted region is the ONLY area to modify.
+    return `The left part of the input is the ORIGINAL facade photo. The panel on the RIGHT is the selected product reference photo. The magenta/white mask defines the ONLY facade area that may be regenerated.
 
-Place ONE SINGLE continuous photorealistic exterior aluminum roller shutter across the ENTIRE highlighted window assembly. Treat the highlighted dormer/erker as ONE opening, even when it contains multiple window panes. Do NOT place separate shutters on individual panes. The rolluik must span the full selected width and full selected height as one product, fully closed, with one continuous top cassette and continuous side guides at the outer edges. Use the product appearance from image 2. System color: ${systemColor}. The selected region in normalized image coordinates is ${region}. Preserve the original architecture, roof, brickwork, window divisions and lighting outside the highlighted region.`;
+Place ONE SINGLE continuous photorealistic exterior aluminum roller shutter in the masked area. Treat the entire masked area as ONE product opening, even if the original contains multiple window panes. Do NOT create separate shutters per pane. The rolluik is fully closed, with one continuous top cassette and continuous side guides at the outer edges. Match the physical design, proportions, construction details and material appearance of the product reference panel. System color: ${systemColor}. Keep the facade architecture, brickwork, roof, frames and surrounding context consistent with the original photo. Only the physical area covered by the rolluik may change.`;
   }
 
   if (selection.productType === "ZIPSCREENS") {
-    return `Image 1 is the original facade photo. Image 2 is the exact product reference for the zipscreen. Image 3 is a spatial guide: the semi-transparent highlighted region is the ONLY area to modify.
+    return `The left part of the input is the ORIGINAL facade photo. The panel on the RIGHT is the selected product reference photo. The magenta/white mask defines the ONLY facade area that may be regenerated.
 
-Place ONE SINGLE continuous photorealistic exterior ZIP SCREEN across the ENTIRE highlighted window assembly. Treat the highlighted dormer/erker as ONE opening, even when it contains multiple window panes. Do NOT place separate screens on individual panes. The screen must span the full selected width and full selected height as one product, fully closed, fitted within the selected contour. Use the product appearance from image 2. System color: ${systemColor}. Fabric color: ${fabricColor}. The selected region in normalized image coordinates is ${region}. Preserve the original architecture and everything outside the highlighted region.`;
+Place ONE SINGLE continuous photorealistic exterior ZIP SCREEN in the masked area. Treat the entire masked area as ONE product, even if the original contains multiple window panes. Do NOT create separate screens per pane. The screen is fully closed and fitted to the selected area. Match the physical design, proportions, construction details and material appearance of the product reference panel. System color: ${systemColor}. Fabric color: ${fabricColor}. Keep the facade architecture and surrounding context consistent with the original photo. Only the physical area covered by the screen may change.`;
   }
 
-  return `Image 1 is the original facade photo. Image 2 is the exact product reference for the knikarmscherm. Image 3 is a spatial guide: the semi-transparent highlighted region is the ONLY area to modify.
+  return `The left part of the input is the ORIGINAL facade photo. The panel on the RIGHT is the selected product reference photo. The masked area is the ONLY facade area that may be regenerated.
 
-Place ONE photorealistic folding-arm exterior awning with the fabric fully extended, using the highlighted region as the placement area and the supplied line as the mounting reference. Use the product appearance from image 2. System color: ${systemColor}. Fabric color: ${fabricColor}. Preserve the existing facade and everything outside the highlighted region. The selected region in normalized image coordinates is ${region}.`;
+Place ONE photorealistic folding-arm exterior awning with the fabric fully extended. Use the selected line/area as the mounting and placement reference. Match the physical design, proportions, construction details and material appearance of the product reference panel. System color: ${systemColor}. Fabric color: ${fabricColor}. Keep the original facade and surrounding context consistent. Only the physical area occupied by the awning may change.`;
 }
 
 function buildLineMask(width: number, height: number, coordinates: { x: number; y: number }[]) {
@@ -97,132 +97,45 @@ function getOutputUrl(output: unknown): string {
   throw new Error("Replicate heeft geen geldige afbeeldings-URL teruggegeven.");
 }
 
-async function runEdit(
+async function runMaskedEdit(
   imageBuffer: Buffer,
-  guideBuffer: Buffer,
-  referenceBuffer: Buffer,
+  maskBuffer: Buffer,
   prompt: string,
   apiKey: string
 ) {
   const replicate = new Replicate({ auth: apiKey });
-  console.log("FLUX.2 Pro starten", {
+
+  console.log("FLUX Fill Pro starten", {
     imageBytes: imageBuffer.length,
-    guideBytes: guideBuffer.length,
-    referenceBytes: referenceBuffer.length,
+    maskBytes: maskBuffer.length,
     prompt,
   });
 
   try {
-    const output = await replicate.run("black-forest-labs/flux-2-pro", {
+    const output = await replicate.run("black-forest-labs/flux-fill-pro", {
       input: {
+        image: imageBuffer,
+        mask: maskBuffer,
         prompt,
-        input_images: [imageBuffer, referenceBuffer, guideBuffer],
-        aspect_ratio: "match_input_image",
-        resolution: "1 MP",
-        output_format: "jpg",
-        output_quality: 90,
+        steps: 50,
+        guidance: 7,
+        output_format: "png",
         safety_tolerance: 2,
         prompt_upsampling: false,
       },
     });
 
     const url = getOutputUrl(output);
-    console.log("FLUX.2 Pro klaar");
+    console.log("FLUX Fill Pro klaar");
     return url;
   } catch (error) {
-    console.error("FLUX.2 Pro fout:", error);
-    throw new Error(error instanceof Error ? `Replicate/FLUX fout: ${error.message}` : "Onbekende Replicate/FLUX fout.");
+    console.error("FLUX Fill Pro fout:", error);
+    throw new Error(
+      error instanceof Error
+        ? `Replicate/FLUX Fill Pro fout: ${error.message}`
+        : "Onbekende Replicate/FLUX Fill Pro fout."
+    );
   }
-}
-
-function maskCropBounds(
-  maskRaw: Buffer,
-  width: number,
-  height: number,
-  paddingRatio: number
-) {
-  let left = width;
-  let top = height;
-  let right = -1;
-  let bottom = -1;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (maskRaw[y * width + x] === 0) continue;
-      if (x < left) left = x;
-      if (x > right) right = x;
-      if (y < top) top = y;
-      if (y > bottom) bottom = y;
-    }
-  }
-
-  if (right < 0) {
-    return { left: 0, top: 0, right: width, bottom: height };
-  }
-
-  const maskWidth = right - left + 1;
-  const maskHeight = bottom - top + 1;
-  const padX = Math.max(16, Math.round(maskWidth * paddingRatio));
-  const padY = Math.max(16, Math.round(maskHeight * paddingRatio));
-
-  return {
-    left: Math.max(0, left - padX),
-    top: Math.max(0, top - padY),
-    right: Math.min(width, right + 1 + padX),
-    bottom: Math.min(height, bottom + 1 + padY),
-  };
-}
-
-function maskBounds(maskRaw: Buffer, width: number, height: number) {
-  let left = width;
-  let top = height;
-  let right = -1;
-  let bottom = -1;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (maskRaw[y * width + x] === 0) continue;
-      if (x < left) left = x;
-      if (x > right) right = x;
-      if (y < top) top = y;
-      if (y > bottom) bottom = y;
-    }
-  }
-
-  if (right < 0) {
-    return { left: 0, top: 0, right: 1, bottom: 1 };
-  }
-
-  return {
-    left: left / width,
-    top: top / height,
-    right: (right + 1) / width,
-    bottom: (bottom + 1) / height,
-  };
-}
-
-async function makeSelectionGuide(imageBuffer: Buffer, maskRaw: Buffer, width: number, height: number) {
-  // A visual guide gives FLUX.2 Pro an explicit spatial reference for the
-  // selected region. The guide is never used as the final image: after
-  // generation we composite only the exact binary mask onto the original.
-  const overlay = Buffer.alloc(width * height * 4);
-  for (let i = 0; i < width * height; i++) {
-    if (maskRaw[i] > 0) {
-      overlay[i * 4] = 255;
-      overlay[i * 4 + 1] = 0;
-      overlay[i * 4 + 2] = 180;
-      overlay[i * 4 + 3] = 90;
-    }
-  }
-
-  return sharp(imageBuffer)
-    .composite([{
-      input: overlay,
-      raw: { width, height, channels: 4 },
-      blend: "over",
-    }])
-    .png()
-    .toBuffer();
 }
 
 async function loadProductReference(productType: ProductType) {
@@ -236,14 +149,85 @@ async function loadProductReference(productType: ProductType) {
   return readFile(filePath);
 }
 
-async function compositeGeneratedOnlyInsideMask(
+/**
+ * FLUX Fill Pro has a native black/white inpainting mask but no separate
+ * reference-image input. We therefore extend the model input canvas to the
+ * right and place the selected product reference outside the facade image.
+ *
+ * The original facade remains at x=0..width. The extension is only context
+ * for the model and is cropped away before the final composite.
+ */
+async function buildReferenceCanvas(
+  imageBuffer: Buffer,
+  referenceBuffer: Buffer,
+  maskRaw: Buffer,
+  width: number,
+  height: number
+) {
+  const panelWidth = Math.max(180, Math.min(360, Math.round(Math.min(width, height) * 0.32)));
+  const panelPadding = Math.max(12, Math.round(panelWidth * 0.08));
+  const panelInnerWidth = panelWidth - panelPadding * 2;
+  const panelInnerHeight = Math.max(120, Math.min(260, Math.round(panelInnerWidth * 0.72)));
+  const extensionWidth = panelWidth + panelPadding;
+  const expandedWidth = width + extensionWidth;
+
+  const referenceImage = await sharp(referenceBuffer)
+    .resize(panelInnerWidth, panelInnerHeight, { fit: "inside", withoutEnlargement: false })
+    .png()
+    .toBuffer();
+
+  const panelSvg = Buffer.from(`
+    <svg width="${extensionWidth}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#f4f4f4"/>
+      <rect x="${panelPadding}" y="${panelPadding}" width="${panelInnerWidth}" height="${panelInnerHeight}" rx="8" fill="white"/>
+      <text x="${panelPadding}" y="${panelPadding + panelInnerHeight + 24}" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#111">PRODUCT REFERENTIE</text>
+      <text x="${panelPadding}" y="${panelPadding + panelInnerHeight + 46}" font-family="Arial, sans-serif" font-size="12" fill="#444">Gebruik dit product als vorm-,</text>
+      <text x="${panelPadding}" y="${panelPadding + panelInnerHeight + 63}" font-family="Arial, sans-serif" font-size="12" fill="#444">materiaal- en detailreferentie.</text>
+    </svg>
+  `);
+
+  const expandedImage = await sharp({
+    create: {
+      width: expandedWidth,
+      height,
+      channels: 3,
+      background: { r: 244, g: 244, b: 244 },
+    },
+  })
+    .composite([
+      { input: imageBuffer, left: 0, top: 0 },
+      { input: panelSvg, left: width, top: 0 },
+      {
+        input: referenceImage,
+        left: width + panelPadding,
+        top: panelPadding,
+      },
+    ])
+    .png()
+    .toBuffer();
+
+  const expandedMaskRaw = Buffer.alloc(expandedWidth * height);
+  for (let y = 0; y < height; y++) {
+    maskRaw.copy(expandedMaskRaw, y * expandedWidth, y * width, (y + 1) * width);
+  }
+
+  const expandedMask = await sharp(expandedMaskRaw, {
+    raw: { width: expandedWidth, height, channels: 1 },
+  }).png().toBuffer();
+
+  return {
+    image: expandedImage,
+    mask: expandedMask,
+    expandedWidth,
+  };
+}
+
+async function compositeMaskedResult(
   originalBuffer: Buffer,
   generatedUrl: string,
   maskRaw: Buffer,
-  maskWidth: number,
-  maskHeight: number,
-  offsetX: number,
-  offsetY: number
+  width: number,
+  height: number
 ) {
   const generatedResponse = await fetch(generatedUrl);
   if (!generatedResponse.ok) {
@@ -252,28 +236,20 @@ async function compositeGeneratedOnlyInsideMask(
 
   const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
 
-  // Critical clone guarantee:
-  // - FLUX may redraw the entire crop because it has no native mask input.
-  // - We therefore NEVER paste the generated crop back as an image.
-  // - We turn the exact user-drawn mask into the alpha channel of the
-  //   generated pixels and composite only those pixels onto the original.
-  // Everything outside the mask remains byte-for-byte from originalBuffer.
-  const generatedInsideMask = await sharp(generatedBuffer)
-    .resize(maskWidth, maskHeight, { fit: "fill" })
+  // Hard preservation boundary:
+  // only pixels covered by the exact user mask are taken from the model output.
+  // Every pixel outside that mask comes from the original/current facade.
+  const generatedOriginalArea = await sharp(generatedBuffer)
+    .extract({ left: 0, top: 0, width, height })
     .removeAlpha()
     .joinChannel(maskRaw, {
-      raw: { width: maskWidth, height: maskHeight, channels: 1 },
+      raw: { width, height, channels: 1 },
     })
     .png()
     .toBuffer();
 
   return sharp(originalBuffer)
-    .composite([{
-      input: generatedInsideMask,
-      left: offsetX,
-      top: offsetY,
-      blend: "over",
-    }])
+    .composite([{ input: generatedOriginalArea, left: 0, top: 0, blend: "over" }])
     .png()
     .toBuffer();
 }
@@ -312,68 +288,77 @@ export async function POST(req: Request) {
       const bounds = maskBounds(maskRaw, width, height);
       const referenceBuffer = await loadProductReference(selection.productType);
 
-      // IMPORTANT:
-      // Do not give FLUX.2 Pro the complete facade as its editing canvas.
-      // FLUX is an image-generation/editing model, not a pixel-perfect
-      // inpainting engine. If it sees the entire facade, it can reinterpret
-      // the whole photograph even when the prompt says to change one area.
-      //
-      // Instead we crop a small context window around the exact user-drawn
-      // rectangle mask. FLUX only sees that local area. The final result is then composited
-      // back into the current facade using that exact binary mask.
-      const crop = maskCropBounds(maskRaw, width, height, 0.18);
-      const cropWidth = crop.right - crop.left;
-      const cropHeight = crop.bottom - crop.top;
+      // Keep the user's original image as the canonical canvas.
+      // If the source is very small, temporarily upscale only the model input;
+      // the final result is always composited back at the original dimensions.
+      const MIN_MODEL_SIDE = 256;
+      const scale = Math.max(1, MIN_MODEL_SIDE / Math.min(width, height));
+      const workingWidth = Math.max(width, Math.round(width * scale));
+      const workingHeight = Math.max(height, Math.round(height * scale));
 
-      const cropBuffer = await sharp(currentBuffer)
-        .extract({
-          left: crop.left,
-          top: crop.top,
-          width: cropWidth,
-          height: cropHeight,
-        })
-        .png()
-        .toBuffer();
+      const workingImage = scale === 1
+        ? originalBuffer
+        : await sharp(originalBuffer)
+            .resize(workingWidth, workingHeight, { fit: "fill" })
+            .png()
+            .toBuffer();
 
-      const cropMaskRaw = await sharp(maskRaw, {
-        raw: { width, height, channels: 1 },
-      })
-        .extract({
-          left: crop.left,
-          top: crop.top,
-          width: cropWidth,
-          height: cropHeight,
-        })
-        .raw()
-        .toBuffer();
+      const workingMaskRaw = scale === 1
+        ? maskRaw
+        : await sharp(maskRaw, {
+            raw: { width, height, channels: 1 },
+          })
+            .resize(workingWidth, workingHeight, { fit: "fill", kernel: "nearest" })
+            .raw()
+            .toBuffer();
 
-      const guideBuffer = await makeSelectionGuide(
-        cropBuffer,
-        cropMaskRaw,
-        cropWidth,
-        cropHeight
+      const referenceCanvas = await buildReferenceCanvas(
+        workingImage,
+        referenceBuffer,
+        workingMaskRaw,
+        workingWidth,
+        workingHeight
       );
 
-      const generatedUrl = await runEdit(
-        cropBuffer,
-        guideBuffer,
-        referenceBuffer,
+      const generatedUrl = await runMaskedEdit(
+        referenceCanvas.image,
+        referenceCanvas.mask,
         productPrompt(selection, bounds),
         apiKey
       );
 
-      // IMPORTANT: never paste the generated crop itself back into the
-      // facade. Only pixels under the exact drag rectangle are allowed to
-      // come from FLUX. Everything else stays from the original/current image.
-      currentBuffer = await compositeGeneratedOnlyInsideMask(
-        currentBuffer,
-        generatedUrl,
-        cropMaskRaw,
-        cropWidth,
-        cropHeight,
-        crop.left,
-        crop.top
-      );
+      const generatedResponse = await fetch(generatedUrl);
+      if (!generatedResponse.ok) {
+        throw new Error(`Het AI-resultaat kon niet worden opgehaald (HTTP ${generatedResponse.status}).`);
+      }
+      const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
+
+      const generatedWorkingFacade = await sharp(generatedBuffer)
+        .extract({ left: 0, top: 0, width: workingWidth, height: workingHeight })
+        .png()
+        .toBuffer();
+
+      const generatedAtOriginalSize = scale === 1
+        ? generatedWorkingFacade
+        : await sharp(generatedWorkingFacade)
+            .resize(width, height, { fit: "fill" })
+            .png()
+            .toBuffer();
+
+      // Final hard boundary: the exact drag mask is the only source of changed
+      // pixels. The original facade is always the base image.
+      const generatedMasked = await sharp(generatedAtOriginalSize)
+        .removeAlpha()
+        .joinChannel(maskRaw, {
+          raw: { width, height, channels: 1 },
+        })
+        .png()
+        .toBuffer();
+
+      currentBuffer = await sharp(currentBuffer)
+        .composite([{ input: generatedMasked, left: 0, top: 0, blend: "over" }])
+        .png()
+        .toBuffer();
 
       results.push({ id: selection.id, productType: selection.productType });
     }
@@ -381,10 +366,10 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       imageUrl: bufferToDataUri(currentBuffer, "image/png"),
-      model: "black-forest-labs/flux-2-pro",
+      model: "black-forest-labs/flux-fill-pro",
       selectionCount: selections.length,
       results,
-      message: "Visualisatie succesvol gegenereerd met masked inpainting.",
+      message: "Visualisatie succesvol gegenereerd met exact masked inpainting.",
     });
   } catch (error: unknown) {
     console.error("Inpainting API Error:", error);
