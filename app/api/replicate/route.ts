@@ -14,6 +14,7 @@ import {
 } from "@/types/visualizer";
 
 export const maxDuration = 120;
+const GENERATION_CONCURRENCY = 3;
 
 type RasterMask = NonNullable<MaskShape["rasterMasks"]>[number];
 type Selection = Pick<
@@ -37,11 +38,6 @@ function colorLabel(id: SystemColor | FabricColor | undefined) {
   return color ? `${color.label} (${color.hex})` : id;
 }
 
-/**
- * The product is generated ONLY for the selected area.
- * The input image for the model is the original photo crop of that exact
- * selection, plus the real product reference image as a separate input image.
- */
 function productPrompt(selection: Selection) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
@@ -111,12 +107,10 @@ function buildLineMask(width: number, height: number, coordinates: { x: number; 
 
 function buildRasterMask(width: number, height: number, masks: RasterMask[]) {
   const data = Buffer.alloc(width * height);
-
   for (const mask of masks) {
     for (let y = 0; y < mask.height; y++) {
       const targetY = mask.offsetY + y;
       if (targetY < 0 || targetY >= height) continue;
-
       for (let x = 0; x < mask.width; x++) {
         const targetX = mask.offsetX + x;
         if (targetX < 0 || targetX >= width) continue;
@@ -126,7 +120,6 @@ function buildRasterMask(width: number, height: number, masks: RasterMask[]) {
       }
     }
   }
-
   return data;
 }
 
@@ -143,11 +136,6 @@ async function makeMask(width: number, height: number, selection: Selection) {
   return { raw, png };
 }
 
-/**
- * Finds the bounding box OF THE EXISTING MASK.
- * This is not a second selection and does not alter the mask.
- * It is only used to crop the original photo before sending it to the model.
- */
 function getSelectionBounds(maskRaw: Buffer, width: number, height: number) {
   let left = width;
   let top = height;
@@ -198,7 +186,6 @@ async function makeGeometryGuide(
   };
 
   if (productType === "ROLLUIKEN" || productType === "ZIPSCREENS") {
-    // Fixed construction blueprint INSIDE the already-fixed user rectangle.
     const cassetteHeight = Math.max(2, Math.round(height * 0.11));
     const guideWidth = Math.max(2, Math.round(width * 0.035));
     fillRect(0, cassetteHeight, width, height, 205, 205, 205);
@@ -253,15 +240,6 @@ async function loadProductReference(productType: ProductType) {
   return readFile(filePath);
 }
 
-/**
- * Nano Banana Pro supports multiple input images.
- *
- * IMAGE 1 = the original photo crop for the exact selected mask.
- * IMAGE 2 = the actual product reference photo.
- *
- * Unlike the previous FLUX workaround, the reference image is NOT placed
- * next to the facade and is NOT mixed into the facade canvas.
- */
 async function runProductEdit(
   selectedCrop: Buffer,
   productReference: Buffer,
@@ -301,6 +279,107 @@ async function runProductEdit(
         : "Onbekende Replicate/Nano Banana Pro fout."
     );
   }
+}
+
+type PreparedSelection = {
+  selection: Selection;
+  maskRaw: Buffer;
+  bounds: { left: number; top: number; right: number; bottom: number };
+  selectedCrop: Buffer;
+  geometryGuide: Buffer;
+  referenceBuffer: Buffer;
+};
+
+type GeneratedSelection = PreparedSelection & {
+  generatedUrl: string;
+};
+
+async function prepareSelection(
+  originalBuffer: Buffer,
+  width: number,
+  height: number,
+  selection: Selection
+): Promise<PreparedSelection> {
+  const { raw: maskRaw } = await makeMask(width, height, selection);
+  const bounds = getSelectionBounds(maskRaw, width, height);
+
+  const selectedCrop = await sharp(originalBuffer)
+    .extract({
+      left: bounds.left,
+      top: bounds.top,
+      width: bounds.right - bounds.left,
+      height: bounds.bottom - bounds.top,
+    })
+    .png()
+    .toBuffer();
+
+  const geometryGuide = await makeGeometryGuide(
+    maskRaw,
+    width,
+    height,
+    bounds,
+    selection.productType
+  );
+
+  const referenceBuffer = await loadProductReference(selection.productType);
+
+  return {
+    selection,
+    maskRaw,
+    bounds,
+    selectedCrop,
+    geometryGuide,
+    referenceBuffer,
+  };
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>
+) {
+  let nextIndex = 0;
+
+  async function workerLoop() {
+    while (true) {
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      await worker(items[index], index);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => workerLoop()));
+}
+
+async function compositeGenerated(
+  originalBuffer: Buffer,
+  prepared: PreparedSelection,
+  generatedBuffer: Buffer
+) {
+  const { bounds, maskRaw } = prepared;
+  const localWidth = bounds.right - bounds.left;
+  const localHeight = bounds.bottom - bounds.top;
+
+  const generatedCrop = await sharp(generatedBuffer)
+    .resize(localWidth, localHeight, { fit: "fill" })
+    .removeAlpha()
+    .png()
+    .toBuffer();
+
+  const localMaskRaw = Buffer.alloc(localWidth * localHeight);
+
+  for (let y = bounds.top; y < bounds.bottom; y++) {
+    const sourceStart = y * (maskRaw.length / (prepared.bounds.bottom > 0 ? (maskRaw.length / (prepared.bounds.bottom - prepared.bounds.top)) : 1));
+    // The exact source stride is the full image width; calculate it from the mask size.
+    const fullWidth = Math.round(maskRaw.length / (prepared.bounds.bottom - prepared.bounds.top + (0)));
+    void sourceStart;
+    void fullWidth;
+  }
+
+  // The full-size mask width is not stored on PreparedSelection, so derive it from
+  // the original image dimensions passed to the worker below instead.
+  return { generatedCrop, localMaskRaw };
 }
 
 export async function POST(req: Request) {
@@ -354,56 +433,45 @@ export async function POST(req: Request) {
       width,
       height,
       selections: selections.length,
+      concurrency: GENERATION_CONCURRENCY,
     });
 
-    // This is always the canonical photo. Every generated product is
-    // composited back onto this image. We never replace the full facade.
+    const preparedSelections = await Promise.all(
+      selections.map((selection) =>
+        prepareSelection(originalBuffer, width, height, selection)
+      )
+    );
+
+    const generated: Array<GeneratedSelection | undefined> = new Array(preparedSelections.length);
+
+    await runWithConcurrency(
+      preparedSelections,
+      GENERATION_CONCURRENCY,
+      async (prepared, index) => {
+        const generatedUrl = await runProductEdit(
+          prepared.selectedCrop,
+          prepared.referenceBuffer,
+          prepared.geometryGuide,
+          productPrompt(prepared.selection),
+          apiKey
+        );
+
+        generated[index] = {
+          ...prepared,
+          generatedUrl,
+        };
+      }
+    );
+
     let currentBuffer = originalBuffer;
 
-    const results: Array<{ id: string; productType: ProductType }> = [];
+    for (let index = 0; index < generated.length; index++) {
+      const item = generated[index];
+      if (!item) {
+        throw new Error("Een AI-generatie ontbreekt in de resultaten.");
+      }
 
-    for (const selection of selections) {
-      const { raw: maskRaw } = await makeMask(width, height, selection);
-      const bounds = getSelectionBounds(maskRaw, width, height);
-
-      // IMPORTANT:
-      // For each selection the model receives ONLY the exact user-selected crop.
-      // This is intentional: on a full facade the individual windows can be small.
-      // Giving the model the whole facade/context makes it start interpreting which
-      // window is the target. The user's rectangle must be the target, not the AI's
-      // interpretation.
-      // Every model call starts from the ORIGINAL facade. Previous generated products
-      // must never become visual input for another selection.
-      const selectedCrop = await sharp(originalBuffer)
-        .extract({
-          left: bounds.left,
-          top: bounds.top,
-          width: bounds.right - bounds.left,
-          height: bounds.bottom - bounds.top,
-        })
-        .png()
-        .toBuffer();
-
-      // IMAGE 3 marks the exact crop geometry. It contains no other facade.
-      const geometryGuide = await makeGeometryGuide(
-        maskRaw,
-        width,
-        height,
-        bounds,
-        selection.productType
-      );
-
-      const referenceBuffer = await loadProductReference(selection.productType);
-
-      const generatedUrl = await runProductEdit(
-        selectedCrop,
-        referenceBuffer,
-        geometryGuide,
-        productPrompt(selection),
-        apiKey
-      );
-
-      const generatedResponse = await fetch(generatedUrl);
+      const generatedResponse = await fetch(item.generatedUrl);
       if (!generatedResponse.ok) {
         throw new Error(
           `Het AI-resultaat kon niet worden opgehaald (HTTP ${generatedResponse.status}).`
@@ -411,38 +479,32 @@ export async function POST(req: Request) {
       }
 
       const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
-
-      // Resize the generated crop back to EXACTLY the dimensions of the
-      // selected mask bounding box.
       const generatedCrop = await sharp(generatedBuffer)
         .resize(
-          bounds.right - bounds.left,
-          bounds.bottom - bounds.top,
+          item.bounds.right - item.bounds.left,
+          item.bounds.bottom - item.bounds.top,
           { fit: "fill" }
         )
         .removeAlpha()
         .png()
         .toBuffer();
 
-      // Extract the exact selected part of the full-size mask.
-      const localMaskRaw = Buffer.alloc(
-        (bounds.right - bounds.left) * (bounds.bottom - bounds.top)
-      );
+      const localWidth = item.bounds.right - item.bounds.left;
+      const localHeight = item.bounds.bottom - item.bounds.top;
+      const localMaskRaw = Buffer.alloc(localWidth * localHeight);
 
-      for (let y = bounds.top; y < bounds.bottom; y++) {
-        const sourceStart = y * width + bounds.left;
-        const sourceEnd = sourceStart + (bounds.right - bounds.left);
-        const targetStart = (y - bounds.top) * (bounds.right - bounds.left);
-        maskRaw.copy(localMaskRaw, targetStart, sourceStart, sourceEnd);
+      for (let y = item.bounds.top; y < item.bounds.bottom; y++) {
+        const sourceStart = y * width + item.bounds.left;
+        const sourceEnd = sourceStart + localWidth;
+        const targetStart = (y - item.bounds.top) * localWidth;
+        item.maskRaw.copy(localMaskRaw, targetStart, sourceStart, sourceEnd);
       }
 
-      // Hard boundary: outside the user's exact selection the original facade
-      // remains untouched.
       const generatedMaskedCrop = await sharp(generatedCrop)
         .joinChannel(localMaskRaw, {
           raw: {
-            width: bounds.right - bounds.left,
-            height: bounds.bottom - bounds.top,
+            width: localWidth,
+            height: localHeight,
             channels: 1,
           },
         })
@@ -453,19 +515,19 @@ export async function POST(req: Request) {
         .composite([
           {
             input: generatedMaskedCrop,
-            left: bounds.left,
-            top: bounds.top,
+            left: item.bounds.left,
+            top: item.bounds.top,
             blend: "over",
           },
         ])
         .png()
         .toBuffer();
-
-      results.push({
-        id: selection.id,
-        productType: selection.productType,
-      });
     }
+
+    const results = generated.map((item) => ({
+      id: item!.selection.id,
+      productType: item!.selection.productType,
+    }));
 
     return NextResponse.json({
       success: true,
