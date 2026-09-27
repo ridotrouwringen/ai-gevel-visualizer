@@ -48,6 +48,9 @@ export function FacadeCanvas() {
   const [segmenting, setSegmenting] = useState(false);
   const [segmentationPreview, setSegmentationPreview] = useState<string | null>(null);
   const [segmentError, setSegmentError] = useState<string | null>(null);
+  // Debug view: this is the exact raster mask stored in Zustand and sent
+  // unchanged to /api/replicate as selection.rasterMasks.
+  const [showGenerationMask, setShowGenerationMask] = useState(true);
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -89,11 +92,14 @@ export function FacadeCanvas() {
           mask.rasterMasks.forEach((raster) => {
             const local = maskCtx.createImageData(raster.width, raster.height);
             for (let i = 0; i < raster.width * raster.height; i++) {
-              const alpha = raster.data[i] > 0 ? 115 : 0;
-              local.data[i * 4] = 0;
+              const on = raster.data[i] > 0;
+              // Vivid magenta makes the exact binary generation mask easy to
+              // inspect against the original facade. Pixels outside the mask
+              // remain fully transparent.
+              local.data[i * 4] = 255;
               local.data[i * 4 + 1] = 0;
-              local.data[i * 4 + 2] = 0;
-              local.data[i * 4 + 3] = alpha;
+              local.data[i * 4 + 2] = 180;
+              local.data[i * 4 + 3] = on && showGenerationMask ? 145 : 0;
             }
             const localCanvas = document.createElement('canvas');
             localCanvas.width = raster.width;
@@ -109,11 +115,13 @@ export function FacadeCanvas() {
               raster.height * imageScaleY
             );
           });
-          ctx.save();
-          ctx.globalCompositeOperation = 'source-over';
-          ctx.globalAlpha = 0.8;
-          ctx.drawImage(maskCanvas, 0, 0);
-          ctx.restore();
+          if (showGenerationMask) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            ctx.drawImage(maskCanvas, 0, 0);
+            ctx.restore();
+          }
         }
         const midX = canvas.width * 0.5;
         const midY = canvas.height * 0.5;
@@ -201,7 +209,7 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, dragStart, dragCurrent, originalImage]);
+  }, [masks, dragStart, dragCurrent, originalImage, showGenerationMask]);
 
   const getPointerPosition = (e: PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -302,6 +310,7 @@ export function FacadeCanvas() {
       }
 
       if (Array.isArray(data.selectedMasks) && data.selectedMasks.length) {
+        setShowGenerationMask(true);
         addMask({
           type: 'RASTER_MASK',
           coordinates: [],
@@ -369,6 +378,22 @@ export function FacadeCanvas() {
           style={{ touchAction: 'none' }}
         />
       </div>
+
+      {masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
+        <button
+          type="button"
+          onClick={() => setShowGenerationMask((visible) => !visible)}
+          className="absolute top-4 right-4 z-20 bg-fuchsia-600/95 hover:bg-fuchsia-700 text-white px-4 py-2 rounded-md text-sm shadow-lg font-semibold border border-white/30"
+        >
+          {showGenerationMask ? 'Mask verbergen' : 'Exacte generation-mask tonen'}
+        </button>
+      )}
+
+      {showGenerationMask && masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
+        <div className="absolute bottom-4 left-4 z-20 bg-fuchsia-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
+          EXACTE MASK → /api/replicate
+        </div>
+      )}
 
       <div className="absolute top-4 left-4 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
         <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
