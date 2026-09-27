@@ -51,11 +51,11 @@ function productPrompt(selection: Selection) {
 
 CRITICAL: IMAGE 3 is the exact target rectangle chosen by the user. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
 
-The WHITE area in IMAGE 3 is the installation area. Fill that ENTIRE WHITE area from its left edge to its right edge and from its top edge to its bottom edge with ONE SINGLE continuous exterior aluminum roller shutter. Do not use the surrounding context as part of the installation area.
+The WHITE area in IMAGE 3 is the installation area. Fill that ENTIRE WHITE area from its left edge to its right edge and from its top edge to its bottom edge with ONE SINGLE complete exterior aluminum roller shutter SYSTEM. The installed product MUST visibly contain ALL THREE physical parts as one unit: (1) a clear horizontal TOP CASSETTE/BOX across the full width at the top, (2) the complete CLOSED ROLLER-SHUTTER ARMOR/SLAT CURTAIN below it, and (3) a vertical SIDE GUIDE on the LEFT and a vertical SIDE GUIDE on the RIGHT running the full height of the curtain. Do NOT generate only the armor/slats. Do NOT omit the top cassette. Do NOT omit either side guide. The cassette and both guides must be clearly visible and physically connected to the shutter. Do not use the surrounding context as part of the installation area.
 
 ONE product only. ONE continuous rolluik across the complete selected rectangle. FULLY CLOSED. No separate shutters for panes. No visible original window glass or internal window divisions inside the selected rectangle.
 
-Use IMAGE 2 ONLY as the physical product reference for the roller shutter design, cassette, side guides, slats, proportions and material appearance. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 only for exact geometry.
+Use IMAGE 2 as the physical product reference, but prioritize the complete PRODUCT CONSTRUCTION: TOP CASSETTE + LEFT SIDE GUIDE + CLOSED SLAT CURTAIN + RIGHT SIDE GUIDE. Reconstruct all four visible structural elements as one complete rolluik system. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 only for exact geometry.
 System color: ${systemColor}.
 
 Keep only the real perspective, camera angle and lighting relationship from IMAGE 1. Do not reinterpret the selection.
