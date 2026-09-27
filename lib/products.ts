@@ -9,7 +9,7 @@ export const PRODUCTS_LIBRARY: Record<string, ProductInfo> = {
   ROLLUIKEN: {
     id: 'ROLLUIKEN',
     name: 'Rolluik',
-    referenceImage: '/products/rolluik.jpg',
+    referenceImage: '/products/rolluik.png',
     defaultPrompt: 'An exterior aluminum roller shutter (rolluik) fitted neatly on the window recess.'
   },
   ZIPSCREENS: {
