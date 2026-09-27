@@ -51,7 +51,9 @@ function productPrompt(selection: Selection) {
 
 CRITICAL: IMAGE 1 itself is the exact target area chosen by the user. Do not search for or infer another window inside it. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
 
-The WHITE area in IMAGE 3 is the installation area. Fill that ENTIRE WHITE area from its left edge to its right edge and from its top edge to its bottom edge with ONE SINGLE complete exterior aluminum roller shutter SYSTEM. The installed product MUST visibly contain ALL THREE physical parts as one unit: (1) a clear horizontal TOP CASSETTE/BOX across the full width at the top, (2) the complete CLOSED ROLLER-SHUTTER ARMOR/SLAT CURTAIN below it, and (3) a vertical SIDE GUIDE on the LEFT and a vertical SIDE GUIDE on the RIGHT running the full height of the curtain. Do NOT generate only the armor/slats. Do NOT omit the top cassette. Do NOT omit either side guide. The cassette and both guides must be clearly visible and physically connected to the shutter. Do not use the surrounding context as part of the installation area.
+IMAGE 1 IS A REPLACEMENT PLATE, NOT A WINDOW-DETECTION TASK. The entire rectangular IMAGE 1 is writable. The TOP EDGE of IMAGE 1 is the TOP EDGE of the rolluik. The BOTTOM EDGE of IMAGE 1 is the BOTTOM EDGE of the rolluik. The LEFT EDGE of IMAGE 1 is the OUTER EDGE of the left guide. The RIGHT EDGE of IMAGE 1 is the OUTER EDGE of the right guide. There is NO margin, NO inset and NO unused strip inside IMAGE 1.
+
+Replace the ENTIRE IMAGE 1 rectangle with ONE SINGLE complete exterior aluminum roller shutter SYSTEM. The installed product MUST visibly contain ALL THREE physical parts as one unit: (1) a clear horizontal TOP CASSETTE/BOX across the full width at the top, (2) the complete CLOSED ROLLER-SHUTTER ARMOR/SLAT CURTAIN below it, and (3) a vertical SIDE GUIDE on the LEFT and a vertical SIDE GUIDE on the RIGHT running the full height of the curtain. Do NOT generate only the armor/slats. Do NOT omit the top cassette. Do NOT omit either side guide. The cassette and both guides must be clearly visible and physically connected to the shutter. Do not use the surrounding context as part of the installation area.
 
 ONE product only. ONE continuous rolluik across the complete selected rectangle. FULLY CLOSED. No separate shutters for panes. No visible original window glass or internal window divisions inside the selected rectangle.
 
@@ -59,7 +61,7 @@ Use IMAGE 2 as the physical product reference, but prioritize the complete PRODU
 System color: ${systemColor}.
 
 Keep only the real perspective, camera angle and lighting relationship from IMAGE 1. Do not reinterpret the selection.
-The output must be a photorealistic installed rolluik that reaches all four edges of the WHITE geometry in IMAGE 3.`;
+The output must reach the EXACT four edges of IMAGE 1. The cassette MUST touch the TOP EDGE. The left guide MUST touch the LEFT EDGE. The right guide MUST touch the RIGHT EDGE. The closed slat curtain must extend from immediately below the cassette to the BOTTOM EDGE. DO NOT leave any original facade, window frame or glass visible above, beside or below the product within IMAGE 1.`;
   }
 
   if (selection.productType === "ZIPSCREENS") {
