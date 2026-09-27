@@ -47,9 +47,9 @@ function productPrompt(selection: Selection) {
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
   if (selection.productType === "ROLLUIKEN") {
-    return `IMAGE 1 is an ORIGINAL PHOTO CONTEXT CROP around the user's selection. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a BLACK/WHITE GEOMETRY GUIDE: WHITE = the user's exact selection, BLACK = outside the selection.
+    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF EXACTLY THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a BLACK/WHITE GEOMETRY GUIDE for IMAGE 1.
 
-CRITICAL: IMAGE 3 is the exact target rectangle chosen by the user. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
+CRITICAL: IMAGE 1 itself is the exact target area chosen by the user. Do not search for or infer another window inside it. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
 
 The WHITE area in IMAGE 3 is the installation area. Fill that ENTIRE WHITE area from its left edge to its right edge and from its top edge to its bottom edge with ONE SINGLE complete exterior aluminum roller shutter SYSTEM. The installed product MUST visibly contain ALL THREE physical parts as one unit: (1) a clear horizontal TOP CASSETTE/BOX across the full width at the top, (2) the complete CLOSED ROLLER-SHUTTER ARMOR/SLAT CURTAIN below it, and (3) a vertical SIDE GUIDE on the LEFT and a vertical SIDE GUIDE on the RIGHT running the full height of the curtain. Do NOT generate only the armor/slats. Do NOT omit the top cassette. Do NOT omit either side guide. The cassette and both guides must be clearly visible and physically connected to the shutter. Do not use the surrounding context as part of the installation area.
 
@@ -63,9 +63,9 @@ The output must be a photorealistic installed rolluik that reaches all four edge
   }
 
   if (selection.productType === "ZIPSCREENS") {
-    return `IMAGE 1 is an ORIGINAL PHOTO CONTEXT CROP around the user's selection. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a BLACK/WHITE GEOMETRY GUIDE: WHITE = the user's exact selection, BLACK = outside the selection.
+    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF EXACTLY THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a BLACK/WHITE GEOMETRY GUIDE for IMAGE 1.
 
-CRITICAL: IMAGE 3 is the exact target rectangle chosen by the user. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
+CRITICAL: IMAGE 1 itself is the exact target area chosen by the user. Do not search for or infer another window inside it. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
 
 The WHITE area in IMAGE 3 is the installation area. Fill that ENTIRE WHITE area from its left edge to its right edge and from its top edge to its bottom edge with ONE SINGLE continuous exterior ZIP SCREEN. Do not use the surrounding context as part of the installation area.
 
@@ -169,23 +169,6 @@ function getSelectionBounds(maskRaw: Buffer, width: number, height: number) {
   }
 
   return { left, top, right: right + 1, bottom: bottom + 1 };
-}
-
-function getContextBounds(selectionBounds: { left: number; top: number; right: number; bottom: number }, width: number, height: number) {
-  const selectionWidth = selectionBounds.right - selectionBounds.left;
-  const selectionHeight = selectionBounds.bottom - selectionBounds.top;
-
-  // Give the model enough facade context to understand perspective and mounting,
-  // while keeping the exact user selection as the only writable area.
-  const padX = Math.max(24, Math.round(selectionWidth * 0.75));
-  const padY = Math.max(24, Math.round(selectionHeight * 0.75));
-
-  return {
-    left: Math.max(0, selectionBounds.left - padX),
-    top: Math.max(0, selectionBounds.top - padY),
-    right: Math.min(width, selectionBounds.right + padX),
-    bottom: Math.min(height, selectionBounds.bottom + padY),
-  };
 }
 
 async function makeGeometryGuide(
@@ -350,28 +333,29 @@ export async function POST(req: Request) {
       const bounds = getSelectionBounds(maskRaw, width, height);
 
       // IMPORTANT:
-      // The model sees exactly the pixels covered by the user's mask.
-      // There is no SAM selection, no second geometry and no reference panel.
-      // Use the ORIGINAL facade for every model call. Previous generated products
+      // For each selection the model receives ONLY the exact user-selected crop.
+      // This is intentional: on a full facade the individual windows can be small.
+      // Giving the model the whole facade/context makes it start interpreting which
+      // window is the target. The user's rectangle must be the target, not the AI's
+      // interpretation.
+      // Every model call starts from the ORIGINAL facade. Previous generated products
       // must never become visual input for another selection.
-      const contextBounds = getContextBounds(bounds, width, height);
-
       const selectedCrop = await sharp(originalBuffer)
         .extract({
-          left: contextBounds.left,
-          top: contextBounds.top,
-          width: contextBounds.right - contextBounds.left,
-          height: contextBounds.bottom - contextBounds.top,
+          left: bounds.left,
+          top: bounds.top,
+          width: bounds.right - bounds.left,
+          height: bounds.bottom - bounds.top,
         })
         .png()
         .toBuffer();
 
-      // IMAGE 3 explicitly marks the exact user selection inside the larger context crop.
+      // IMAGE 3 marks the exact crop geometry. It contains no other facade.
       const geometryGuide = await makeGeometryGuide(
         maskRaw,
         width,
         height,
-        contextBounds
+        bounds
       );
 
       const referenceBuffer = await loadProductReference(selection.productType);
@@ -397,8 +381,8 @@ export async function POST(req: Request) {
       // selected mask bounding box.
       const generatedCrop = await sharp(generatedBuffer)
         .resize(
-          contextBounds.right - contextBounds.left,
-          contextBounds.bottom - contextBounds.top,
+          bounds.right - bounds.left,
+          bounds.bottom - bounds.top,
           { fit: "fill" }
         )
         .removeAlpha()
@@ -407,7 +391,7 @@ export async function POST(req: Request) {
 
       // Extract the corresponding part of the full-size mask.
       const localMaskRaw = Buffer.alloc(
-        (contextBounds.right - contextBounds.left) * (contextBounds.bottom - contextBounds.top)
+        (contextBounds.right - bounds.left) * (contextBounds.bottom - bounds.top)
       );
 
       for (let y = contextBounds.top; y < contextBounds.bottom; y++) {
