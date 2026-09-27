@@ -43,53 +43,55 @@ function productPrompt(selection: Selection) {
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
   if (selection.productType === "ROLLUIKEN") {
-    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF EXACTLY THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a PRODUCT CONSTRUCTION BLUEPRINT for IMAGE 1.
+    return `Create ONE isolated, complete exterior aluminum roller shutter product asset using IMAGE 1 as the physical product reference.
 
-CRITICAL: IMAGE 1 itself is the exact target area chosen by the user. Do not search for or infer another window inside it. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
+This is NOT a facade editing task and NOT a window detection task.
+Do not show a house, window, wall, glass or architecture.
+Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
 
-IMAGE 1 IS A REPLACEMENT PLATE, NOT A WINDOW-DETECTION TASK. The entire rectangular IMAGE 1 is writable. The TOP EDGE of IMAGE 1 is the TOP EDGE of the rolluik. The BOTTOM EDGE of IMAGE 1 is the BOTTOM EDGE of the rolluik. The LEFT EDGE of IMAGE 1 is the OUTER EDGE of the left guide. The RIGHT EDGE of IMAGE 1 is the OUTER EDGE of the right guide. There is NO margin, NO inset and NO unused strip inside IMAGE 1.
+The product must consist of exactly:
+1. a clearly visible horizontal top cassette across the full width,
+2. a fully CLOSED roller-shutter curtain with horizontal slats,
+3. a continuous vertical side guide on the left,
+4. a continuous vertical side guide on the right.
 
-Replace the ENTIRE IMAGE 1 rectangle with ONE SINGLE complete exterior aluminum roller shutter SYSTEM. The installed product MUST visibly contain ALL THREE physical parts as one unit: (1) a clear horizontal TOP CASSETTE/BOX across the full width at the top, (2) the complete CLOSED ROLLER-SHUTTER ARMOR/SLAT CURTAIN below it, and (3) a vertical SIDE GUIDE on the LEFT and a vertical SIDE GUIDE on the RIGHT running the full height of the curtain. Do NOT generate only the armor/slats. Do NOT omit the top cassette. Do NOT omit either side guide. The cassette and both guides must be clearly visible and physically connected to the shutter. Do not use the surrounding context as part of the installation area.
-
-ONE product only. ONE continuous rolluik across the complete selected rectangle. FULLY CLOSED. No separate shutters for panes. No visible original window glass or internal window divisions inside the selected rectangle.
-
-Use IMAGE 2 as the physical product reference, but prioritize the complete PRODUCT CONSTRUCTION: TOP CASSETTE + LEFT SIDE GUIDE + CLOSED SLAT CURTAIN + RIGHT SIDE GUIDE. Reconstruct all four visible structural elements as one complete rolluik system. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 as the physical construction blueprint. The outer boundary of IMAGE 1 remains the user's exact selection.
+The four outer product edges must be straight and parallel.
+Do not tilt, rotate, skew or perspective-distort the product.
+The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
 System color: ${systemColor}.
 
-Keep the real lighting and facade context from IMAGE 1, but use IMAGE 3 to lock the product geometry.
-The FOUR CORNERS of IMAGE 3 are hard placement anchors. Keep the complete rolluik RECTANGULAR AND AXIS-ALIGNED to those four corners. Do NOT tilt, rotate, skew or slant the rolluik independently of the IMAGE 3 boundary, even if the underlying window or facade appears angled.
-The output must reach the EXACT four edges of IMAGE 1. The cassette MUST touch the TOP EDGE. The left guide MUST touch the LEFT EDGE. The right guide MUST touch the RIGHT EDGE. The closed slat curtain must extend from immediately below the cassette to the BOTTOM EDGE. DO NOT leave any original facade, window frame or glass visible above, beside or below the product within IMAGE 1.`;
+Use IMAGE 1 only to copy the real product construction and appearance. Do not copy its background or scene.
+The final asset must be a single complete rolluik, not multiple products.`;
   }
 
   if (selection.productType === "ZIPSCREENS") {
-    return `IMAGE 1 is the ORIGINAL PHOTO CROP OF EXACTLY THE USER'S SELECTION. IMAGE 2 is the PRODUCT REFERENCE. IMAGE 3 is a PRODUCT CONSTRUCTION BLUEPRINT for IMAGE 1.
+    return `Create ONE isolated, complete exterior ZIP SCREEN product asset using IMAGE 1 as the physical product reference.
 
-CRITICAL: IMAGE 1 itself is the exact target area chosen by the user. Do not search for or infer another window inside it. DO NOT decide what part of IMAGE 1 is the window. DO NOT detect panes, frames, glass or openings. DO NOT shrink the product to fit an inferred window.
+This is NOT a facade editing task and NOT a window detection task.
+Do not show a house, window, wall, glass or architecture.
+Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
 
-The WHITE area in IMAGE 3 is the installation area. Fill that ENTIRE WHITE area from its left edge to its right edge and from its top edge to its bottom edge with ONE SINGLE continuous exterior ZIP SCREEN. Do not use the surrounding context as part of the installation area.
-
-ONE product only. ONE continuous screen across the complete selected rectangle. FULLY CLOSED. No separate screens for panes. No visible original window glass or internal window divisions inside the selected rectangle.
-
-Use IMAGE 2 ONLY as the physical product reference for the screen construction, side guides, cassette, proportions and material appearance. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 as the physical construction blueprint. The outer boundary of IMAGE 1 remains the user's exact selection.
+The product must consist of one continuous fully CLOSED screen with a clear top cassette and continuous left and right side guides.
+The four outer product edges must be straight and parallel.
+Do not tilt, rotate, skew or perspective-distort the product.
+The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
 System color: ${systemColor}.
 Fabric color: ${fabricColor}.
 
-Keep the real lighting and facade context from IMAGE 1, but use IMAGE 3 to lock the product geometry.
-The FOUR CORNERS of IMAGE 3 are hard placement anchors. Keep the complete ZIP SCREEN RECTANGULAR AND AXIS-ALIGNED to those four corners. Do NOT tilt, rotate, skew or slant the screen independently of the IMAGE 3 boundary.
-The output must be a photorealistic installed ZIP SCREEN that reaches all four edges of the WHITE geometry in IMAGE 3.`;
+Use IMAGE 1 only to copy the real product construction and appearance. Do not copy its background or scene.
+The final asset must be a single complete ZIP screen, not multiple products.`;
   }
 
-  return `IMAGE 1 is the original facade crop at the selected awning position.
-IMAGE 2 is the actual product reference photo for the folding-arm awning.
+  return `Create ONE isolated, complete folding-arm awning product asset using IMAGE 1 as the physical product reference.
 
-Edit IMAGE 1 by adding ONE photorealistic folding-arm exterior awning at the indicated selected position.
-The awning fabric is FULLY EXTENDED.
-Use IMAGE 2 as the physical product reference for the awning construction, cassette, arms, proportions and material appearance.
+This is NOT a facade editing task.
+Do not show a house or architecture.
+Generate one straight-on, axis-aligned awning with the fabric FULLY EXTENDED.
 System color: ${systemColor}.
 Fabric color: ${fabricColor}.
 
-Preserve the real facade perspective, camera angle, lighting and architecture from IMAGE 1.
-Return exactly one installed awning.`;
+Use IMAGE 1 only to copy the real product construction, proportions and appearance.
+The final asset must be a single complete awning on a pure-white background.`;
 }
 
 function buildLineMask(width: number, height: number, coordinates: { x: number; y: number }[]) {
@@ -276,18 +278,14 @@ async function loadProductReference(productType: ProductType) {
 }
 
 async function runProductEdit(
-  selectedCrop: Buffer,
   productReference: Buffer,
-  geometryGuide: Buffer,
   prompt: string,
   apiKey: string
 ) {
   const replicate = new Replicate({ auth: apiKey });
 
   console.log("Nano Banana starten", {
-    cropBytes: selectedCrop.length,
     referenceBytes: productReference.length,
-    guideBytes: geometryGuide.length,
     prompt,
   });
 
@@ -295,7 +293,7 @@ async function runProductEdit(
     const output = await replicate.run("google/nano-banana", {
       input: {
         prompt,
-        image_input: [selectedCrop, productReference, geometryGuide],
+        image_input: [productReference],
         aspect_ratio: "match_input_image",
         output_format: "png",
       },
@@ -318,8 +316,6 @@ type PreparedSelection = {
   selection: Selection;
   maskRaw: Buffer;
   bounds: { left: number; top: number; right: number; bottom: number };
-  selectedCrop: Buffer;
-  geometryGuide: Buffer;
   referenceBuffer: Buffer;
 };
 
@@ -336,32 +332,12 @@ async function prepareSelection(
   const { raw: maskRaw } = await makeMask(width, height, selection);
   const bounds = getSelectionBounds(maskRaw, width, height);
 
-  const selectedCrop = await sharp(originalBuffer)
-    .extract({
-      left: bounds.left,
-      top: bounds.top,
-      width: bounds.right - bounds.left,
-      height: bounds.bottom - bounds.top,
-    })
-    .png()
-    .toBuffer();
-
-  const geometryGuide = await makeGeometryGuide(
-    maskRaw,
-    width,
-    height,
-    bounds,
-    selection.productType
-  );
-
   const referenceBuffer = await loadProductReference(selection.productType);
 
   return {
     selection,
     maskRaw,
     bounds,
-    selectedCrop,
-    geometryGuide,
     referenceBuffer,
   };
 }
@@ -438,6 +414,7 @@ export async function POST(req: Request) {
       selections: selections.length,
       concurrency: GENERATION_CONCURRENCY,
       model: "google/nano-banana",
+      mode: "isolated-product-then-exact-composite",
     });
 
     const preparedSelections = await Promise.all(
@@ -453,9 +430,7 @@ export async function POST(req: Request) {
       GENERATION_CONCURRENCY,
       async (prepared, index) => {
         const generatedUrl = await runProductEdit(
-          prepared.selectedCrop,
           prepared.referenceBuffer,
-          prepared.geometryGuide,
           productPrompt(prepared.selection),
           apiKey
         );
@@ -483,20 +458,19 @@ export async function POST(req: Request) {
       }
 
       const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
-      const generatedCrop = await sharp(generatedBuffer)
-        .resize(
-          item.bounds.right - item.bounds.left,
-          item.bounds.bottom - item.bounds.top,
-          { fit: "fill" }
-        )
-        .removeAlpha()
+      const localWidth = item.bounds.right - item.bounds.left;
+      const localHeight = item.bounds.bottom - item.bounds.top;
+
+      // The AI creates an isolated product on white. Remove only the white background,
+      // then resize the product asset into the EXACT user-selected rectangle.
+      const generatedMaskedCrop = await sharp(generatedBuffer)
+        .resize(localWidth, localHeight, { fit: "fill" })
+        .ensureAlpha()
+        .removeBackground({ threshold: 8 })
         .png()
         .toBuffer();
 
-      const localWidth = item.bounds.right - item.bounds.left;
-      const localHeight = item.bounds.bottom - item.bounds.top;
       const localMaskRaw = Buffer.alloc(localWidth * localHeight);
-
       for (let y = item.bounds.top; y < item.bounds.bottom; y++) {
         const sourceStart = y * width + item.bounds.left;
         const sourceEnd = sourceStart + localWidth;
@@ -504,13 +478,10 @@ export async function POST(req: Request) {
         item.maskRaw.copy(localMaskRaw, targetStart, sourceStart, sourceEnd);
       }
 
-      const generatedMaskedCrop = await sharp(generatedCrop)
+      const finalOverlay = await sharp(generatedMaskedCrop)
+        .ensureAlpha()
         .joinChannel(localMaskRaw, {
-          raw: {
-            width: localWidth,
-            height: localHeight,
-            channels: 1,
-          },
+          raw: { width: localWidth, height: localHeight, channels: 1 },
         })
         .png()
         .toBuffer();
@@ -518,7 +489,7 @@ export async function POST(req: Request) {
       currentBuffer = await sharp(currentBuffer)
         .composite([
           {
-            input: generatedMaskedCrop,
+            input: finalOverlay,
             left: item.bounds.left,
             top: item.bounds.top,
             blend: "over",
@@ -539,7 +510,7 @@ export async function POST(req: Request) {
       model: "google/nano-banana",
       selectionCount: selections.length,
       results,
-      message: "Visualisatie gegenereerd op basis van de exacte selectie.",
+      message: "Product gegenereerd als geïsoleerde asset en exact in de selectie geplaatst.",
     });
   } catch (error: unknown) {
     console.error("Inpainting API Error:", error);
