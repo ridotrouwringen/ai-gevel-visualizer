@@ -56,7 +56,8 @@ ONE product only. ONE continuous rolluik across the complete selected rectangle.
 Use IMAGE 2 as the physical product reference, but prioritize the complete PRODUCT CONSTRUCTION: TOP CASSETTE + LEFT SIDE GUIDE + CLOSED SLAT CURTAIN + RIGHT SIDE GUIDE. Reconstruct all four visible structural elements as one complete rolluik system. Use IMAGE 1 only for real perspective, facade context and lighting. Use IMAGE 3 as the physical construction blueprint. The outer boundary of IMAGE 1 remains the user's exact selection.
 System color: ${systemColor}.
 
-Keep only the real perspective, camera angle and lighting relationship from IMAGE 1. Do not reinterpret the selection.
+Keep the real lighting and facade context from IMAGE 1, but use IMAGE 3 to lock the product geometry.
+The FOUR CORNERS of IMAGE 3 are hard placement anchors. Keep the complete rolluik RECTANGULAR AND AXIS-ALIGNED to those four corners. Do NOT tilt, rotate, skew or slant the rolluik independently of the IMAGE 3 boundary, even if the underlying window or facade appears angled.
 The output must reach the EXACT four edges of IMAGE 1. The cassette MUST touch the TOP EDGE. The left guide MUST touch the LEFT EDGE. The right guide MUST touch the RIGHT EDGE. The closed slat curtain must extend from immediately below the cassette to the BOTTOM EDGE. DO NOT leave any original facade, window frame or glass visible above, beside or below the product within IMAGE 1.`;
   }
 
@@ -73,7 +74,8 @@ Use IMAGE 2 ONLY as the physical product reference for the screen construction, 
 System color: ${systemColor}.
 Fabric color: ${fabricColor}.
 
-Keep only the real perspective, camera angle and lighting relationship from IMAGE 1. Do not reinterpret the selection.
+Keep the real lighting and facade context from IMAGE 1, but use IMAGE 3 to lock the product geometry.
+The FOUR CORNERS of IMAGE 3 are hard placement anchors. Keep the complete ZIP SCREEN RECTANGULAR AND AXIS-ALIGNED to those four corners. Do NOT tilt, rotate, skew or slant the screen independently of the IMAGE 3 boundary.
 The output must be a photorealistic installed ZIP SCREEN that reaches all four edges of the WHITE geometry in IMAGE 3.`;
   }
 
@@ -188,16 +190,49 @@ async function makeGeometryGuide(
   if (productType === "ROLLUIKEN" || productType === "ZIPSCREENS") {
     const cassetteHeight = Math.max(2, Math.round(height * 0.11));
     const guideWidth = Math.max(2, Math.round(width * 0.035));
-    fillRect(0, cassetteHeight, width, height, 205, 205, 205);
-    fillRect(0, 0, width, cassetteHeight, 90, 90, 90);
-    fillRect(0, cassetteHeight, guideWidth, height, 65, 65, 65);
-    fillRect(width - guideWidth, cassetteHeight, width, height, 65, 65, 65);
+    const border = Math.max(3, Math.round(Math.min(width, height) * 0.025));
+
+    // Neutral construction drawing. The outer frame is the hard placement boundary.
+    fillRect(0, 0, width, height, 235, 235, 235);
+    fillRect(0, 0, width, border, 20, 20, 20);
+    fillRect(0, height - border, width, height, 20, 20, 20);
+    fillRect(0, 0, border, height, 20, 20, 20);
+    fillRect(width - border, 0, width, height, 20, 20, 20);
+
+    // Strong corner anchors reinforce orientation and prevent unintended slant.
+    const anchor = Math.max(4, Math.round(Math.min(width, height) * 0.06));
+    fillRect(0, 0, anchor, anchor, 0, 0, 0);
+    fillRect(width - anchor, 0, width, anchor, 0, 0, 0);
+    fillRect(0, height - anchor, anchor, height, 0, 0, 0);
+    fillRect(width - anchor, height - anchor, width, height, 0, 0, 0);
+
+    // Product construction inside the hard outer frame.
+    fillRect(border, cassetteHeight, width - border, height - border, 205, 205, 205);
+    fillRect(border, border, width - border, cassetteHeight, 80, 80, 80);
+    fillRect(border, cassetteHeight, border + guideWidth, height - border, 65, 65, 65);
+    fillRect(width - border - guideWidth, cassetteHeight, width - border, height - border, 65, 65, 65);
 
     const slatStep = Math.max(3, Math.round(height * 0.025));
-    for (let y = cassetteHeight + slatStep; y < height; y += slatStep) {
-      for (let x = guideWidth; x < width - guideWidth; x++) setPixel(x, y, 125, 125, 125);
+    for (let y = cassetteHeight + slatStep; y < height - border; y += slatStep) {
+      for (let x = border + guideWidth; x < width - border - guideWidth; x++) {
+        setPixel(x, y, 125, 125, 125);
+      }
     }
-  } else {
+
+    // Center crosshair reinforces the intended vertical/horizontal orientation.
+    const centerX = Math.floor(width / 2);
+    const centerY = Math.floor(height / 2);
+    const crossThickness = Math.max(1, Math.round(border / 2));
+    for (let y = border; y < height - border; y++) {
+      for (let x = centerX - crossThickness; x <= centerX + crossThickness; x++) {
+        setPixel(x, y, 170, 170, 170);
+      }
+    }
+    for (let x = border; x < width - border; x++) {
+      for (let y = centerY - crossThickness; y <= centerY + crossThickness; y++) {
+        setPixel(x, y, 170, 170, 170);
+      }
+    }  } else {
     const localMask = Buffer.alloc(width * height);
     for (let y = bounds.top; y < bounds.bottom; y++) {
       const sourceStart = y * imageWidth + bounds.left;
