@@ -32,10 +32,8 @@ function productPrompt(
 ) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
-  const region = `left=${bounds.left.toFixed(3)}, top=${bounds.top.toFixed(3)}, right=${bounds.right.toFixed(3)}, bottom=${bounds.bottom.toFixed(3)}`;
-
   if (selection.productType === "ROLLUIKEN") {
-    return `The left part of the input is the ORIGINAL facade photo. The panel on the RIGHT is the selected product reference photo. The magenta/white mask defines the ONLY facade area that may be regenerated.
+    return `The left part of the input is the ORIGINAL facade photo. The panel on the RIGHT is the selected product reference photo. The white inpainting mask defines the ONLY facade area that may be regenerated.
 
 Place ONE SINGLE continuous photorealistic exterior aluminum roller shutter in the masked area. Treat the entire masked area as ONE product opening, even if the original contains multiple window panes. Do NOT create separate shutters per pane. The rolluik is fully closed, with one continuous top cassette and continuous side guides at the outer edges. Match the physical design, proportions, construction details and material appearance of the product reference panel. System color: ${systemColor}. Keep the facade architecture, brickwork, roof, frames and surrounding context consistent with the original photo. Only the physical area covered by the rolluik may change.`;
   }
@@ -46,7 +44,7 @@ Place ONE SINGLE continuous photorealistic exterior aluminum roller shutter in t
 Place ONE SINGLE continuous photorealistic exterior ZIP SCREEN in the masked area. Treat the entire masked area as ONE product, even if the original contains multiple window panes. Do NOT create separate screens per pane. The screen is fully closed and fitted to the selected area. Match the physical design, proportions, construction details and material appearance of the product reference panel. System color: ${systemColor}. Fabric color: ${fabricColor}. Keep the facade architecture and surrounding context consistent with the original photo. Only the physical area covered by the screen may change.`;
   }
 
-  return `The left part of the input is the ORIGINAL facade photo. The panel on the RIGHT is the selected product reference photo. The masked area is the ONLY facade area that may be regenerated.
+  return `The left part of the input is the ORIGINAL facade photo. The panel on the RIGHT is the selected product reference photo. The white inpainting mask is the ONLY facade area that may be regenerated.
 
 Place ONE photorealistic folding-arm exterior awning with the fabric fully extended. Use the selected line/area as the mounting and placement reference. Match the physical design, proportions, construction details and material appearance of the product reference panel. System color: ${systemColor}. Fabric color: ${fabricColor}. Keep the original facade and surrounding context consistent. Only the physical area occupied by the awning may change.`;
 }
@@ -222,38 +220,6 @@ async function buildReferenceCanvas(
   };
 }
 
-async function compositeMaskedResult(
-  originalBuffer: Buffer,
-  generatedUrl: string,
-  maskRaw: Buffer,
-  width: number,
-  height: number
-) {
-  const generatedResponse = await fetch(generatedUrl);
-  if (!generatedResponse.ok) {
-    throw new Error(`Het AI-resultaat kon niet worden opgehaald (HTTP ${generatedResponse.status}).`);
-  }
-
-  const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
-
-  // Hard preservation boundary:
-  // only pixels covered by the exact user mask are taken from the model output.
-  // Every pixel outside that mask comes from the original/current facade.
-  const generatedOriginalArea = await sharp(generatedBuffer)
-    .extract({ left: 0, top: 0, width, height })
-    .removeAlpha()
-    .joinChannel(maskRaw, {
-      raw: { width, height, channels: 1 },
-    })
-    .png()
-    .toBuffer();
-
-  return sharp(originalBuffer)
-    .composite([{ input: generatedOriginalArea, left: 0, top: 0, blend: "over" }])
-    .png()
-    .toBuffer();
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -334,6 +300,7 @@ export async function POST(req: Request) {
       const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
 
       const generatedWorkingFacade = await sharp(generatedBuffer)
+        .resize(referenceCanvas.expandedWidth, workingHeight, { fit: "fill" })
         .extract({ left: 0, top: 0, width: workingWidth, height: workingHeight })
         .png()
         .toBuffer();
