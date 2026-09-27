@@ -34,7 +34,7 @@ const isPointNearLine = (px: number, py: number, x1: number, y1: number, x2: num
 
 export function FacadeCanvas() {
   const {
-    originalImage, setOriginalImage, clearMasks, masks, addMask, removeMask,
+    originalImage, setOriginalImage, clearMasks, masks, addMask,
     activeProduct, activeSystemColor, activeFabricColor
   } = useVisualizerStore();
 
@@ -45,8 +45,6 @@ export function FacadeCanvas() {
 
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
   const [dragCurrent, setDragCurrent] = useState<{ x: number, y: number } | null>(null);
-  const [segmenting, setSegmenting] = useState(false);
-  const [segmentationPreview, setSegmentationPreview] = useState<string | null>(null);
   const [segmentError, setSegmentError] = useState<string | null>(null);
   // Debug view: this is the exact raster mask stored in Zustand and sent
   // unchanged to /api/replicate as selection.rasterMasks.
@@ -211,6 +209,30 @@ export function FacadeCanvas() {
     return () => window.removeEventListener('resize', drawCanvas);
   }, [masks, dragStart, dragCurrent, originalImage, showGenerationMask]);
 
+  // The drag rectangle is the complete and authoritative generation mask for
+  // rolluiken and screens. There is deliberately no kozijn search, SAM3
+  // segmentation, mask merging or contour interpretation in this path.
+  const buildDragRasterMask = (
+    selection: { left: number; top: number; right: number; bottom: number },
+    imageWidth: number,
+    imageHeight: number
+  ) => {
+    const left = Math.max(0, Math.min(imageWidth - 1, Math.floor(selection.left * imageWidth)));
+    const top = Math.max(0, Math.min(imageHeight - 1, Math.floor(selection.top * imageHeight)));
+    const right = Math.max(left + 1, Math.min(imageWidth, Math.ceil(selection.right * imageWidth)));
+    const bottom = Math.max(top + 1, Math.min(imageHeight, Math.ceil(selection.bottom * imageHeight)));
+    const width = right - left;
+    const height = bottom - top;
+
+    return {
+      data: Array(width * height).fill(255),
+      width,
+      height,
+      offsetX: left,
+      offsetY: top,
+    };
+  };
+
   const getPointerPosition = (e: PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -279,9 +301,7 @@ export function FacadeCanvas() {
       return;
     }
 
-    setSegmenting(true);
     setSegmentError(null);
-    setSegmentationPreview(null);
 
     const selection = {
       left: Math.min(start.x, end.x),
@@ -290,47 +310,26 @@ export function FacadeCanvas() {
       bottom: Math.max(start.y, end.y)
     };
 
-    try {
-      const response = await fetch('/api/segment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: originalImage,
-          selection,
-          imageWidth: imgRef.current?.naturalWidth ?? null,
-          imageHeight: imgRef.current?.naturalHeight ?? null
-        })
-      });
+    const imageWidth = imgRef.current?.naturalWidth;
+    const imageHeight = imgRef.current?.naturalHeight;
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || 'SAM 3 selectie mislukt.');
-
-      if (data.visualizationUrl) {
-        setSegmentationPreview(data.visualizationUrl);
-      }
-
-      if (Array.isArray(data.selectedMasks) && data.selectedMasks.length) {
-        setShowGenerationMask(true);
-        addMask({
-          type: 'RASTER_MASK',
-          coordinates: [],
-          rasterMasks: data.selectedMasks,
-          productType: activeProduct,
-          systemColor: activeSystemColor,
-          fabricColor: activeFabricColor || undefined
-        });
-      } else {
-        const debugText = data.debugShape
-          ? ` SAM3 output-structuur: ${JSON.stringify(data.debugShape).slice(0, 3500)}`
-          : '';
-        throw new Error('SAM 3 kon geen selectie uit de sleepactie halen.' + debugText);
-      }
-    } catch (error) {
-      setSegmentError(error instanceof Error ? error.message : 'SAM 3 selectie mislukt.');
-    } finally {
-      setSegmenting(false);
+    if (!imageWidth || !imageHeight) {
+      setSegmentError('De afmetingen van de foto konden niet worden bepaald.');
+      return;
     }
-  };
+
+    // EXACTLY the user's drag rectangle is sent onward as the mask.
+    const rasterMask = buildDragRasterMask(selection, imageWidth, imageHeight);
+    setShowGenerationMask(true);
+
+    addMask({
+      type: 'RASTER_MASK',
+      coordinates: [],
+      rasterMasks: [rasterMask],
+      productType: activeProduct,
+      systemColor: activeSystemColor,
+      fabricColor: activeFabricColor || undefined
+    });
 
   if (!originalImage) {
     return (
@@ -358,13 +357,6 @@ export function FacadeCanvas() {
           onLoad={drawCanvas}
           className="block max-w-full max-h-[80vh] object-contain shadow-md rounded-sm"
         />
-        {segmentationPreview && (
-          <img
-            src={segmentationPreview}
-            alt="SAM 3 selectiepreview"
-            className="absolute inset-0 w-full h-full object-contain pointer-events-none opacity-0 rounded-sm"
-          />
-        )}
         <canvas
           ref={canvasRef}
           onPointerDown={handlePointerDown}
@@ -397,9 +389,9 @@ export function FacadeCanvas() {
 
       <div className="absolute top-4 left-4 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
         <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
-        {segmenting ? "Selectie wordt door SAM 3 verwerkt…" : segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
+        {segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
           ? "Sleep over de gewenste breedte van het knikarmscherm."
-          : "Sleep over het raam of kozijn dat je wilt selecteren. Meerdere ramen? Sleep over het hele gebied."
+          : "Sleep exact over het gebied waar het product moet komen. Alleen deze sleepactie wordt gebruikt voor de generatie-mask."
         }
       </div>
 
