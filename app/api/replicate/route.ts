@@ -463,9 +463,51 @@ export async function POST(req: Request) {
 
       // The AI creates an isolated product on white. Remove only the white background,
       // then resize the product asset into the EXACT user-selected rectangle.
-      const generatedMaskedCrop = await sharp(generatedBuffer)
+      // Nano Banana returns the isolated product on white. Build a real alpha
+      // channel from the RGB pixels: near-white pixels become transparent,
+      // product pixels remain opaque. This uses Sharp's documented raw-pixel
+      // and joinChannel APIs rather than a non-existent removeBackground method.
+      const resized = await sharp(generatedBuffer)
         .resize(localWidth, localHeight, { fit: "fill" })
-        .ensureAlpha()
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      const alpha = Buffer.alloc(localWidth * localHeight);
+      for (let p = 0, i = 0; p < resized.data.length; p += 3, i++) {
+        const r = resized.data[p];
+        const g = resized.data[p + 1];
+        const b = resized.data[p + 2];
+
+        // Distance from white. Pure/near white background is transparent.
+        // Keep a small soft transition so product edges do not look cut out.
+        const whiteness = Math.min(r, g, b);
+        const maxChannel = Math.max(r, g, b);
+        const distance = 255 - whiteness;
+
+        if (distance <= 10 && maxChannel >= 245) {
+          alpha[i] = 0;
+        } else if (distance <= 35 && maxChannel >= 225) {
+          alpha[i] = Math.round(((distance - 10) / 25) * 255);
+        } else {
+          alpha[i] = 255;
+        }
+      }
+
+      const generatedMaskedCrop = await sharp(resized.data, {
+        raw: {
+          width: resized.info.width,
+          height: resized.info.height,
+          channels: 3,
+        },
+      })
+        .joinChannel(alpha, {
+          raw: {
+            width: localWidth,
+            height: localHeight,
+            channels: 1,
+          },
+        })
         .png()
         .toBuffer();
 
