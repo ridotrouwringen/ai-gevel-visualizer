@@ -466,7 +466,6 @@ export async function POST(req: Request) {
       const generatedMaskedCrop = await sharp(generatedBuffer)
         .resize(localWidth, localHeight, { fit: "fill" })
         .ensureAlpha()
-        .removeBackground({ threshold: 8 })
         .png()
         .toBuffer();
 
