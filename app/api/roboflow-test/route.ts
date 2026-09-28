@@ -4,6 +4,29 @@ const ROBOFLOW_WORKSPACE = "gevels";
 const ROBOFLOW_WORKFLOW =
   "kozijn-detectie-vkozijn-detectie-2-rfdetr-small-t1-logic";
 
+export async function GET() {
+  return new Response(`<!doctype html>
+<html lang="nl">
+<head><meta charset="utf-8"><title>Roboflow kozijn test</title></head>
+<body style="font-family:Arial,sans-serif;padding:30px">
+<h2>Roboflow kozijn test</h2>
+<input id="file" type="file" accept="image/*">
+<button id="test">Test foto</button>
+<pre id="result" style="white-space:pre-wrap;margin-top:20px"></pre>
+<script>
+document.getElementById("test").onclick = async () => {
+  const file = document.getElementById("file").files[0];
+  if (!file) { document.getElementById("result").textContent = "Kies eerst een foto."; return; }
+  const form = new FormData();
+  form.append("image", file);
+  document.getElementById("result").textContent = "Bezig...";
+  const response = await fetch("/api/roboflow-test", { method: "POST", body: form });
+  document.getElementById("result").textContent = JSON.stringify(await response.json(), null, 2);
+};
+</script>
+</body></html>`, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
 export async function POST(request: Request) {
   try {
     const apiKey = process.env.ROBOFLOW_API_KEY;
