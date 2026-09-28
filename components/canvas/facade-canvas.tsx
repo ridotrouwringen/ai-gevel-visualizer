@@ -49,13 +49,49 @@ export function FacadeCanvas() {
   // Debug view: this is the exact raster mask stored in Zustand and sent
   // unchanged to /api/replicate as selection.rasterMasks.
   const [showGenerationMask, setShowGenerationMask] = useState(true);
+  const [kozijnDetections, setKozijnDetections] = useState<Array<{ x: number; y: number; width: number; height: number; confidence: number }>>([]);
+  const [isDetectingKozijnen, setIsDetectingKozijnen] = useState(false);
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setKozijnDetections([]);
+    setIsDetectingKozijnen(true);
+
     const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) setOriginalImage(event.target.result as string);
+    reader.onload = async (event) => {
+      if (!event.target?.result) {
+        setIsDetectingKozijnen(false);
+        return;
+      }
+
+      setOriginalImage(event.target.result as string);
+
+      try {
+        const formData = new FormData();
+        formData.append('image', file);
+
+        const response = await fetch('/api/roboflow-test', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.error || 'Roboflow detectie mislukt.');
+        }
+
+        const predictions =
+          data?.result?.outputs?.[0]?.predictions?.predictions || [];
+
+        setKozijnDetections(predictions);
+      } catch (error) {
+        console.error('Roboflow kozijn detectie:', error);
+        setKozijnDetections([]);
+      } finally {
+        setIsDetectingKozijnen(false);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -73,6 +109,37 @@ export function FacadeCanvas() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.lineCap = 'round';
+
+    const imageWidth = imgRef.current?.naturalWidth || canvas.width;
+    const imageHeight = imgRef.current?.naturalHeight || canvas.height;
+
+    // Roboflow returns bounding boxes in original-image pixels.
+    // Draw them only as guidance; the existing drag mask remains authoritative.
+    kozijnDetections.forEach((detection, index) => {
+      const left = (detection.x - detection.width / 2) * canvas.width / imageWidth;
+      const top = (detection.y - detection.height / 2) * canvas.height / imageHeight;
+      const width = detection.width * canvas.width / imageWidth;
+      const height = detection.height * canvas.height / imageHeight;
+
+      ctx.save();
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(left, top, width, height);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.arc(left + 12, top + 12, 11, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 12px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(index + 1), left + 12, top + 12);
+      ctx.restore();
+    });
 
     masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
@@ -207,7 +274,7 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, dragStart, dragCurrent, originalImage, showGenerationMask]);
+  }, [masks, dragStart, dragCurrent, originalImage, showGenerationMask, kozijnDetections]);
 
   // The drag rectangle is the complete and authoritative generation mask for
   // rolluiken and screens. There is deliberately no kozijn search, SAM3
@@ -380,6 +447,12 @@ export function FacadeCanvas() {
         >
           {showGenerationMask ? 'Mask verbergen' : 'Exacte generation-mask tonen'}
         </button>
+      )}
+
+      {isDetectingKozijnen && (
+        <div className="absolute top-16 left-4 z-20 bg-green-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
+          Kozijnen zoeken...
+        </div>
       )}
 
       {showGenerationMask && masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
