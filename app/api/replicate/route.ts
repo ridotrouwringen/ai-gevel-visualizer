@@ -494,34 +494,22 @@ export async function POST(req: Request) {
         }
       }
 
-      const generatedMaskedCrop = await sharp(resized.data, {
+      // Combine the AI product alpha with the exact user-selection mask.
+      // Do this as one RGBA image: the selection mask must limit the overlay,
+      // while the white-background removal keeps the facade visible around the product.
+      const combinedAlpha = Buffer.alloc(localWidth * localHeight);
+      for (let i = 0; i < combinedAlpha.length; i++) {
+        combinedAlpha[i] = Math.round((alpha[i] * localMaskRaw[i]) / 255);
+      }
+
+      const finalOverlay = await sharp(resized.data, {
         raw: {
           width: resized.info.width,
           height: resized.info.height,
           channels: 3,
         },
       })
-        .joinChannel(alpha, {
-          raw: {
-            width: localWidth,
-            height: localHeight,
-            channels: 1,
-          },
-        })
-        .png()
-        .toBuffer();
-
-      const localMaskRaw = Buffer.alloc(localWidth * localHeight);
-      for (let y = item.bounds.top; y < item.bounds.bottom; y++) {
-        const sourceStart = y * width + item.bounds.left;
-        const sourceEnd = sourceStart + localWidth;
-        const targetStart = (y - item.bounds.top) * localWidth;
-        item.maskRaw.copy(localMaskRaw, targetStart, sourceStart, sourceEnd);
-      }
-
-      const finalOverlay = await sharp(generatedMaskedCrop)
-        .ensureAlpha()
-        .joinChannel(localMaskRaw, {
+        .joinChannel(combinedAlpha, {
           raw: { width: localWidth, height: localHeight, channels: 1 },
         })
         .png()
