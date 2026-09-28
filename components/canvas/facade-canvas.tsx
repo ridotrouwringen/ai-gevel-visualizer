@@ -117,9 +117,13 @@ export function FacadeCanvas() {
     // Draw them only as guidance; the existing drag mask remains authoritative.
     kozijnDetections.forEach((detection, index) => {
       const left = (detection.x - detection.width / 2) * canvas.width / imageWidth;
-      const top = (detection.y - detection.height / 2) * canvas.height / imageHeight;
       const width = detection.width * canvas.width / imageWidth;
-      const height = detection.height * canvas.height / imageHeight;
+
+      // RF-DETR's vertical boxes are a little too tall in the configurator.
+      // Tighten only the visual guidance box; the detection data and generation mask stay untouched.
+      const guidanceHeight = detection.height * 0.85;
+      const top = (detection.y - guidanceHeight / 2) * canvas.height / imageHeight;
+      const height = guidanceHeight * canvas.height / imageHeight;
 
       ctx.save();
       ctx.strokeStyle = '#22c55e';
