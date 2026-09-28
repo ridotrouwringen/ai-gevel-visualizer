@@ -122,7 +122,7 @@ export function FacadeCanvas() {
       // Keep the detected box exactly the same size. Only shift the visual
       // guidance box 10 source-image pixels downward; detection data and
       // generation mask remain untouched.
-      const verticalShift = 10;
+      const verticalShift = 3;
       const top = (detection.y - detection.height / 2 + verticalShift) * canvas.height / imageHeight;
       const height = detection.height * canvas.height / imageHeight;
 
