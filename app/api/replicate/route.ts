@@ -494,6 +494,14 @@ export async function POST(req: Request) {
         }
       }
 
+      const localMaskRaw = Buffer.alloc(localWidth * localHeight);
+      for (let y = item.bounds.top; y < item.bounds.bottom; y++) {
+        const sourceStart = y * width + item.bounds.left;
+        const sourceEnd = sourceStart + localWidth;
+        const targetStart = (y - item.bounds.top) * localWidth;
+        item.maskRaw.copy(localMaskRaw, targetStart, sourceStart, sourceEnd);
+      }
+
       // Combine the AI product alpha with the exact user-selection mask.
       // Do this as one RGBA image: the selection mask must limit the overlay,
       // while the white-background removal keeps the facade visible around the product.
