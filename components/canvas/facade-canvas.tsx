@@ -350,11 +350,83 @@ export function FacadeCanvas() {
     const width = Math.abs(end.x - start.x);
     const height = Math.abs(end.y - start.y);
 
-    // Selection is intentionally drag-only. A click without a meaningful
-    // drag distance is ignored; there is no click-to-select fallback.
     const MIN_DRAG_SIZE = 0.01;
+
+    // A short click on a detected kozijn selects that complete detected box.
+    // The box keeps its original width/height and uses the same 10px downward
+    // visual correction as the green guidance box.
+    if (Math.max(width, height) < MIN_DRAG_SIZE && activeProduct !== 'KNIKARMSCHERMEN') {
+      const imageWidth = imgRef.current?.naturalWidth;
+      const imageHeight = imgRef.current?.naturalHeight;
+
+      if (!imageWidth || !imageHeight) {
+        setSegmentError('De afmetingen van de foto konden niet worden bepaald.');
+        return;
+      }
+
+      const clickX = start.x * imageWidth;
+      const clickY = start.y * imageHeight;
+      const verticalShift = 10;
+
+      const detection = kozijnDetections.find((d) => {
+        const left = d.x - d.width / 2;
+        const top = d.y - d.height / 2 + verticalShift;
+        return (
+          clickX >= left &&
+          clickX <= left + d.width &&
+          clickY >= top &&
+          clickY <= top + d.height
+        );
+      });
+
+      if (detection) {
+        const left = Math.max(0, Math.min(imageWidth - 1, Math.floor(detection.x - detection.width / 2)));
+        const top = Math.max(0, Math.min(imageHeight - 1, Math.floor(detection.y - detection.height / 2 + verticalShift)));
+        const right = Math.max(left + 1, Math.min(imageWidth, Math.ceil(detection.x + detection.width / 2)));
+        const bottom = Math.max(top + 1, Math.min(imageHeight, Math.ceil(detection.y + detection.height / 2 + verticalShift)));
+
+        const rasterMask = {
+          data: Array((right - left) * (bottom - top)).fill(255),
+          width: right - left,
+          height: bottom - top,
+          offsetX: left,
+          offsetY: top,
+        };
+
+        // Do not add the exact same detected kozijn twice.
+        const alreadySelected = masks.some((mask) =>
+          mask.type === 'RASTER_MASK' &&
+          mask.rasterMasks?.some((raster) =>
+            raster.offsetX === rasterMask.offsetX &&
+            raster.offsetY === rasterMask.offsetY &&
+            raster.width === rasterMask.width &&
+            raster.height === rasterMask.height
+          )
+        );
+
+        if (!alreadySelected) {
+          setSegmentError(null);
+          setShowGenerationMask(true);
+          addMask({
+            type: 'RASTER_MASK',
+            coordinates: [],
+            rasterMasks: [rasterMask],
+            productType: activeProduct,
+            systemColor: activeSystemColor,
+            fabricColor: activeFabricColor || undefined
+          });
+        } else {
+          setSegmentError('Dit kozijn is al geselecteerd.');
+        }
+        return;
+      }
+
+      setSegmentError('Klik op een groen kozijn of sleep over de gewenste plek.');
+      return;
+    }
+
     if (Math.max(width, height) < MIN_DRAG_SIZE) {
-      setSegmentError('Sleep over het raam of de gewenste plek om te selecteren.');
+      setSegmentError('Sleep over de gewenste breedte van het knikarmscherm.');
       return;
     }
 
@@ -470,7 +542,9 @@ export function FacadeCanvas() {
         <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
         {segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
           ? "Sleep over de gewenste breedte van het knikarmscherm."
-          : "Sleep exact over het gebied waar het product moet komen. Alleen deze sleepactie wordt gebruikt voor de generatie-mask."
+          : kozijnDetections.length > 0
+            ? "Klik op een groen kozijn om het automatisch te selecteren, of sleep handmatig."
+            : "Sleep exact over het gebied waar het product moet komen."
         }
       </div>
 
