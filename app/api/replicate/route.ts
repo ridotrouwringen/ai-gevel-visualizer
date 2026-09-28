@@ -52,9 +52,10 @@ Generate the product straight-on, perfectly rectangular, front-facing and axis-a
 The product must consist of exactly:
 1. a clearly visible horizontal top cassette across the full width,
 2. a fully CLOSED roller-shutter curtain with horizontal slats,
-3. a continuous vertical side guide on the left,
-4. a continuous vertical side guide on the right.
+3. a clearly visible, substantial continuous vertical side guide on the left, running the FULL height of the product,
+4. a clearly visible, substantial continuous vertical side guide on the right, running the FULL height of the product.
 
+The side guides are an essential visible part of the product, not thin decorative lines. Make each side guide clearly wide enough to remain visible after the product is resized into a real facade selection.
 The four outer product edges must be straight and parallel.
 Do not tilt, rotate, skew or perspective-distort the product.
 The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
@@ -71,7 +72,8 @@ This is NOT a facade editing task and NOT a window detection task.
 Do not show a house, window, wall, glass or architecture.
 Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
 
-The product must consist of one continuous fully CLOSED screen with a clear top cassette and continuous left and right side guides.
+The product must consist of one continuous fully CLOSED screen with a clear top cassette and clearly visible, substantial left and right side guides running the FULL height.
+The side guides are an essential visible part of the product, not thin decorative lines.
 The four outer product edges must be straight and parallel.
 Do not tilt, rotate, skew or perspective-distort the product.
 The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
