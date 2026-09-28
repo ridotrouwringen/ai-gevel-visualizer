@@ -461,13 +461,21 @@ export async function POST(req: Request) {
       const localWidth = item.bounds.right - item.bounds.left;
       const localHeight = item.bounds.bottom - item.bounds.top;
 
-      // The AI creates an isolated product on white. Remove only the white background,
-      // then resize the product asset into the EXACT user-selected rectangle.
-      // Nano Banana returns the isolated product on white. Build a real alpha
-      // channel from the RGB pixels: near-white pixels become transparent,
-      // product pixels remain opaque. This uses Sharp's documented raw-pixel
-      // and joinChannel APIs rather than a non-existent removeBackground method.
-      const resized = await sharp(generatedBuffer)
+      // Nano Banana can leave white margins around the isolated product.
+      // Trim those margins FIRST, otherwise the product becomes too small
+      // and appears shifted inside the exact user selection.
+      const trimmedProduct = await sharp(generatedBuffer)
+        .trim({
+          background: { r: 255, g: 255, b: 255 },
+          threshold: 12,
+        })
+        .png()
+        .toBuffer();
+
+      // After trimming, resize the actual product content into the EXACT
+      // user-selected rectangle. This makes the product width and height
+      // follow the selected kozijn instead of the AI canvas margins.
+      const resized = await sharp(trimmedProduct)
         .resize(localWidth, localHeight, { fit: "fill" })
         .removeAlpha()
         .raw()
