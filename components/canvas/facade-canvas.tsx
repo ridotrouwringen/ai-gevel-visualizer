@@ -119,11 +119,12 @@ export function FacadeCanvas() {
       const left = (detection.x - detection.width / 2) * canvas.width / imageWidth;
       const width = detection.width * canvas.width / imageWidth;
 
-      // RF-DETR's vertical boxes are a little too tall in the configurator.
-      // Tighten only the visual guidance box; the detection data and generation mask stay untouched.
-      const guidanceHeight = detection.height * 0.70;
-      const top = (detection.y - guidanceHeight / 2) * canvas.height / imageHeight;
-      const height = guidanceHeight * canvas.height / imageHeight;
+      // Keep the detected box exactly the same size. Only shift the visual
+      // guidance box 10 source-image pixels downward; detection data and
+      // generation mask remain untouched.
+      const verticalShift = 10;
+      const top = (detection.y - detection.height / 2 + verticalShift) * canvas.height / imageHeight;
+      const height = detection.height * canvas.height / imageHeight;
 
       ctx.save();
       ctx.strokeStyle = '#22c55e';
