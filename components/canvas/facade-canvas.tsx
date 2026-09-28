@@ -366,7 +366,7 @@ export function FacadeCanvas() {
 
       const clickX = start.x * imageWidth;
       const clickY = start.y * imageHeight;
-      const verticalShift = 10;
+      const verticalShift = 3;
 
       const detection = kozijnDetections.find((d) => {
         const left = d.x - d.width / 2;
