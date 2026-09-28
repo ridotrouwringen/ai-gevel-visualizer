@@ -461,21 +461,65 @@ export async function POST(req: Request) {
       const localWidth = item.bounds.right - item.bounds.left;
       const localHeight = item.bounds.bottom - item.bounds.top;
 
-      // Nano Banana can leave white margins around the isolated product.
-      // Trim those margins FIRST, otherwise the product becomes too small
-      // and appears shifted inside the exact user selection.
-      const trimmedProduct = await sharp(generatedBuffer)
+      // Remove the AI canvas/background first, then find the actual product
+      // content. The product itself must fill the complete selected rectangle;
+      // otherwise a visually correct width can still leave empty height.
+      const source = await sharp(generatedBuffer)
         .trim({
           background: { r: 255, g: 255, b: 255 },
-          threshold: 12,
+          threshold: 25,
+        })
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      let contentLeft = source.info.width;
+      let contentTop = source.info.height;
+      let contentRight = -1;
+      let contentBottom = -1;
+
+      for (let y = 0; y < source.info.height; y++) {
+        for (let x = 0; x < source.info.width; x++) {
+          const p = (y * source.info.width + x) * 3;
+          const r = source.data[p];
+          const g = source.data[p + 1];
+          const b = source.data[p + 2];
+          const distance = 255 - Math.min(r, g, b);
+          if (distance > 18) {
+            contentLeft = Math.min(contentLeft, x);
+            contentTop = Math.min(contentTop, y);
+            contentRight = Math.max(contentRight, x);
+            contentBottom = Math.max(contentBottom, y);
+          }
+        }
+      }
+
+      if (contentRight < contentLeft || contentBottom < contentTop) {
+        throw new Error("Het AI-product bevat geen bruikbaar productgebied.");
+      }
+
+      const contentWidth = contentRight - contentLeft + 1;
+      const contentHeight = contentBottom - contentTop + 1;
+
+      const productCrop = await sharp(source.data, {
+        raw: {
+          width: source.info.width,
+          height: source.info.height,
+          channels: 3,
+        },
+      })
+        .extract({
+          left: contentLeft,
+          top: contentTop,
+          width: contentWidth,
+          height: contentHeight,
         })
         .png()
         .toBuffer();
 
-      // After trimming, resize the actual product content into the EXACT
-      // user-selected rectangle. This makes the product width and height
-      // follow the selected kozijn instead of the AI canvas margins.
-      const resized = await sharp(trimmedProduct)
+      // Now the actual product content, not the AI canvas, is resized
+      // independently to the exact selected width AND height.
+      const resized = await sharp(productCrop)
         .resize(localWidth, localHeight, { fit: "fill" })
         .removeAlpha()
         .raw()
