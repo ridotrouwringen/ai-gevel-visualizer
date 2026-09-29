@@ -395,7 +395,7 @@ async function detectForegroundLamp(image: string, apiKey: string, width: number
   const response = await fetch("https://api.replicate.com/v1/predictions", {
     method: "POST",
     headers: {
-      Authorization: \`Bearer \${apiKey}\`,
+      Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
       Prefer: "wait",
     },
@@ -414,7 +414,7 @@ async function detectForegroundLamp(image: string, apiKey: string, width: number
 
   const prediction = await response.json();
   if (!response.ok || prediction?.status === "failed") {
-    throw new Error(prediction?.detail || prediction?.error || \`SAM 3 gaf HTTP \${response.status}\`);
+    throw new Error(prediction?.detail || prediction?.error || `SAM 3 gaf HTTP ${response.status}`);
   }
 
   const resultUrls: string[] = Array.isArray(prediction?.output?.results)
