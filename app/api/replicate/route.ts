@@ -527,6 +527,35 @@ export async function POST(req: Request) {
         .raw()
         .toBuffer({ resolveWithObject: true });
 
+      // Add roller-shutter side guides deterministically. Nano Banana can
+      // understate or omit these narrow parts, so draw them into the product
+      // asset before applying the exact user-selection alpha mask.
+      if (item.selection.productType === "ROLLUIKEN") {
+        const selectedColor = SYSTEM_COLORS.find((color) => color.id === item.selection.systemColor);
+        const hex = selectedColor?.hex ?? "#383e42";
+        const rgb = hex.match(/[0-9a-f]{2}/gi)?.map((part) => parseInt(part, 16)) ?? [56, 62, 66];
+        const [baseR, baseG, baseB] = rgb;
+        const guideWidth = Math.max(3, Math.round(localWidth * 0.06));
+        const shade = (value: number, factor: number) => Math.max(0, Math.min(255, Math.round(value * factor)));
+        const guideColors = [
+          [shade(baseR, 0.62), shade(baseG, 0.62), shade(baseB, 0.62)],
+          [baseR, baseG, baseB],
+          [shade(baseR + (255 - baseR) * 0.22, 1), shade(baseG + (255 - baseG) * 0.22, 1), shade(baseB + (255 - baseB) * 0.22, 1)],
+        ];
+        for (let y = 0; y < localHeight; y++) {
+          for (let x = 0; x < guideWidth; x++) {
+            const edge = x === 0 ? 0 : x === guideWidth - 1 ? 2 : 1;
+            const leftPixel = (y * localWidth + x) * 3;
+            const rightPixel = (y * localWidth + (localWidth - 1 - x)) * 3;
+            const color = guideColors[edge];
+            for (let channel = 0; channel < 3; channel++) {
+              resized.data[leftPixel + channel] = color[channel];
+              resized.data[rightPixel + channel] = color[channel];
+            }
+          }
+        }
+      }
+
       const alpha = Buffer.alloc(localWidth * localHeight);
       for (let p = 0, i = 0; p < resized.data.length; p += 3, i++) {
         const r = resized.data[p];
