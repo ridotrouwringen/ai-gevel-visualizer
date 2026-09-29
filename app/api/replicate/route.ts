@@ -512,13 +512,12 @@ export async function POST(req: Request) {
         .png()
         .toBuffer();
 
-      // Now the actual product content, not the AI canvas, is resized
-      // independently to the exact selected width AND height.
-      // Preserve the generated roller shutter's aspect ratio. Stretching it
-      // to both selection dimensions distorts the cassette and slat proportions.
+      // Fit the isolated product to the full selected area for this test.
+      // The contain experiment left roller shutters too narrow; physical
+      // proportions will need to be handled with product geometry/scale later.
       const resized = await sharp(productCrop)
         .resize(localWidth, localHeight, {
-          fit: item.selection.productType === "ROLLUIKEN" ? "contain" : "fill",
+          fit: "fill",
           background: { r: 255, g: 255, b: 255 },
           position: "centre",
         })
