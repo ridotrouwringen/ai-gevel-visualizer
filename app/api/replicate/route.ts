@@ -308,6 +308,145 @@ async function runProductEdit(
   }
 }
 
+type ForegroundMaskLayer = {
+  data: (number | boolean)[];
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+};
+
+function flattenMaskValues(value: unknown): (number | boolean)[] | null {
+  if (!Array.isArray(value)) return null;
+  const output: (number | boolean)[] = [];
+  for (const item of value) {
+    if (Array.isArray(item)) {
+      const nested = flattenMaskValues(item);
+      if (!nested) return null;
+      output.push(...nested);
+    } else if (typeof item === "number" || typeof item === "boolean") {
+      output.push(item);
+    } else {
+      return null;
+    }
+  }
+  return output;
+}
+
+function maskArray(value: unknown): { data: (number | boolean)[]; shape: number[] } | null {
+  if (Array.isArray(value)) {
+    const data = flattenMaskValues(value);
+    if (!data) return null;
+    const shape: number[] = [];
+    let current: unknown = value;
+    while (Array.isArray(current)) {
+      shape.push(current.length);
+      current = current[0];
+    }
+    return { data, shape };
+  }
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    const raw = object.data ?? object.values ?? object.array;
+    const data = flattenMaskValues(raw);
+    const shape = Array.isArray(object.shape)
+      ? object.shape.filter((n): n is number => typeof n === "number")
+      : [];
+    if (data && shape.length) return { data, shape };
+  }
+  return null;
+}
+
+function collectForegroundMaskLayers(value: unknown, output: ForegroundMaskLayer[] = []): ForegroundMaskLayer[] {
+  if (!value || typeof value !== "object") return output;
+  if (Array.isArray(value)) {
+    for (const item of value) collectForegroundMaskLayers(item, output);
+    return output;
+  }
+
+  const object = value as Record<string, unknown>;
+  const masks = maskArray(object.masks);
+  const offsets = maskArray(object.masks_offset ?? object.mask_offsets);
+  if (masks && offsets && masks.shape.length >= 3) {
+    const width = masks.shape[masks.shape.length - 1];
+    const height = masks.shape[masks.shape.length - 2];
+    const pixelsPerMask = width * height;
+    const count = Math.floor(masks.data.length / pixelsPerMask);
+    if (width > 0 && height > 0 && count > 0 && offsets.data.length >= count * 2) {
+      for (let i = 0; i < count; i++) {
+        output.push({
+          data: masks.data.slice(i * pixelsPerMask, (i + 1) * pixelsPerMask),
+          width,
+          height,
+          offsetX: Number(offsets.data[i * 2]),
+          offsetY: Number(offsets.data[i * 2 + 1]),
+        });
+      }
+    }
+  }
+
+  for (const key of ["mask", "masks", "results", "predictions", "output"]) {
+    if (object[key] !== object.masks) collectForegroundMaskLayers(object[key], output);
+  }
+  return output;
+}
+
+async function detectForegroundLamp(image: string, apiKey: string, width: number, height: number): Promise<Buffer | null> {
+  const response = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${apiKey}\`,
+      "Content-Type": "application/json",
+      Prefer: "wait",
+    },
+    body: JSON.stringify({
+      version: "vufinder/sam3:1bf97763d5dfd3a1584adca913a8ef4b43c684fca97e04e39e4c50a3a5e09650",
+      input: {
+        image,
+        prompts: [JSON.stringify({ text: "lamp post" })],
+        confidence_threshold: 0.35,
+        visualize: false,
+        offset_masks: true,
+        split_output: true,
+      },
+    }),
+  });
+
+  const prediction = await response.json();
+  if (!response.ok || prediction?.status === "failed") {
+    throw new Error(prediction?.detail || prediction?.error || \`SAM 3 gaf HTTP \${response.status}\`);
+  }
+
+  const resultUrls: string[] = Array.isArray(prediction?.output?.results)
+    ? prediction.output.results.filter((item: unknown): item is string => typeof item === "string")
+    : [];
+  const layers = collectForegroundMaskLayers(prediction?.output);
+  for (const url of resultUrls) {
+    const resultResponse = await fetch(url);
+    if (resultResponse.ok) {
+      layers.push(...collectForegroundMaskLayers(await resultResponse.json()));
+    }
+  }
+
+  if (!layers.length) return null;
+  const mask = Buffer.alloc(width * height);
+  for (const layer of layers) {
+    if (!Number.isFinite(layer.offsetX) || !Number.isFinite(layer.offsetY)) continue;
+    for (let y = 0; y < layer.height; y++) {
+      const targetY = Math.floor(layer.offsetY + y);
+      if (targetY < 0 || targetY >= height) continue;
+      for (let x = 0; x < layer.width; x++) {
+        const value = layer.data[y * layer.width + x];
+        const active = typeof value === "boolean" ? value : (value > 1 ? value > 0 : value > 0.5);
+        if (!active) continue;
+        const targetX = Math.floor(layer.offsetX + x);
+        if (targetX >= 0 && targetX < width) mask[targetY * width + targetX] = 255;
+      }
+    }
+  }
+  return mask.some((value) => value > 0) ? mask : null;
+}
+
 type PreparedSelection = {
   selection: Selection;
   maskRaw: Buffer;
@@ -418,6 +557,16 @@ export async function POST(req: Request) {
         prepareSelection(originalBuffer, width, height, selection)
       )
     );
+
+    // Detect a possible foreground lamp in parallel with product generation.
+    // If detection fails, keep the existing composite unchanged.
+    const hasRollerShutter = selections.some((selection) => selection.productType === "ROLLUIKEN");
+    const foregroundMaskPromise = hasRollerShutter
+      ? detectForegroundLamp(image, apiKey, width, height).catch((error) => {
+          console.warn("Voorgrondherkenning overgeslagen:", error);
+          return null;
+        })
+      : Promise.resolve(null);
 
     const generated: Array<GeneratedSelection | undefined> = new Array(preparedSelections.length);
 
@@ -587,6 +736,38 @@ export async function POST(req: Request) {
         ])
         .png()
         .toBuffer();
+    }
+
+    // Restore original pixels of detected foreground objects only where they
+    // overlap roller-shutter selections, keeping poles in front of the product.
+    const foregroundMask = await foregroundMaskPromise;
+    if (foregroundMask) {
+      const restoreMask = Buffer.alloc(width * height);
+      for (const item of generated) {
+        if (!item || item.selection.productType !== "ROLLUIKEN") continue;
+        for (let i = 0; i < restoreMask.length; i++) {
+          if (foregroundMask[i] > 0 && item.maskRaw[i] > 0) restoreMask[i] = 255;
+        }
+      }
+
+      if (restoreMask.some((value) => value > 0)) {
+        const originalRgb = await sharp(originalBuffer)
+          .removeAlpha()
+          .toColourspace("srgb")
+          .raw()
+          .toBuffer();
+        const originalForeground = await sharp(originalRgb, {
+          raw: { width, height, channels: 3 },
+        })
+          .joinChannel(restoreMask, { raw: { width, height, channels: 1 } })
+          .png()
+          .toBuffer();
+
+        currentBuffer = await sharp(currentBuffer)
+          .composite([{ input: originalForeground, left: 0, top: 0, blend: "over" }])
+          .png()
+          .toBuffer();
+      }
     }
 
     const results = generated.map((item) => ({
