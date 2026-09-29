@@ -50,6 +50,7 @@ Do not show a house, window, wall, glass or architecture.
 Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
 
 The product must consist of a horizontal top cassette across the full width and a fully CLOSED roller-shutter curtain with horizontal slats.
+Keep realistic component proportions based on IMAGE 1: the top cassette should be compact and approximately 11% of the complete product height (representing a typical cassette of about 16 cm on a normal window). The closed slat curtain should occupy the remaining approximately 89% of the product height. Do not make the cassette oversized, and do not enlarge the slats to reduce their count. Keep the slats narrow, evenly spaced, and consistent with the physical reference.
 The four outer product edges must be straight and parallel.
 Do not tilt, rotate, skew or perspective-distort the product.
 The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
