@@ -49,13 +49,7 @@ This is NOT a facade editing task and NOT a window detection task.
 Do not show a house, window, wall, glass or architecture.
 Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
 
-The product must consist of exactly:
-1. a clearly visible horizontal top cassette across the full width,
-2. a fully CLOSED roller-shutter curtain with horizontal slats,
-3. a clearly visible, substantial vertical side guide on the left, starting directly UNDER the top cassette and continuing to the bottom edge,
-4. a clearly visible, substantial vertical side guide on the right, starting directly UNDER the top cassette and continuing to the bottom edge.
-
-The side guides must NOT run in front of or above the top cassette. They are essential visible product parts, not thin decorative lines. Make each side guide clearly wide enough to remain visible after the product is resized into a real facade selection. The top cassette must remain a continuous horizontal component across the full width.
+The product must consist of a horizontal top cassette across the full width and a fully CLOSED roller-shutter curtain with horizontal slats.
 The four outer product edges must be straight and parallel.
 Do not tilt, rotate, skew or perspective-distort the product.
 The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
@@ -72,8 +66,7 @@ This is NOT a facade editing task and NOT a window detection task.
 Do not show a house, window, wall, glass or architecture.
 Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
 
-The product must consist of one continuous fully CLOSED screen with a clear top cassette and clearly visible, substantial left and right side guides starting directly UNDER the cassette and continuing to the bottom edge.
-The side guides must NOT run in front of or above the top cassette. They are essential visible product parts, not thin decorative lines.
+The product must consist of one continuous fully CLOSED screen with a clear top cassette.
 The four outer product edges must be straight and parallel.
 Do not tilt, rotate, skew or perspective-distort the product.
 The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
@@ -526,37 +519,6 @@ export async function POST(req: Request) {
         .removeAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
-
-      // Add roller-shutter side guides deterministically. Nano Banana can
-      // understate or omit these narrow parts, so draw them into the product
-      // asset before applying the exact user-selection alpha mask.
-      if (item.selection.productType === "ROLLUIKEN") {
-        const selectedColor = SYSTEM_COLORS.find((color) => color.id === item.selection.systemColor);
-        const hex = selectedColor?.hex ?? "#383e42";
-        const rgb = hex.match(/[0-9a-f]{2}/gi)?.map((part) => parseInt(part, 16)) ?? [56, 62, 66];
-        const [baseR, baseG, baseB] = rgb;
-        const guideWidth = Math.max(3, Math.round(localWidth * 0.06));
-        const shade = (value: number, factor: number) => Math.max(0, Math.min(255, Math.round(value * factor)));
-        const guideColors = [
-          [shade(baseR, 0.62), shade(baseG, 0.62), shade(baseB, 0.62)],
-          [baseR, baseG, baseB],
-          [shade(baseR + (255 - baseR) * 0.22, 1), shade(baseG + (255 - baseG) * 0.22, 1), shade(baseB + (255 - baseB) * 0.22, 1)],
-        ];
-        // The cassette occupies the top band; guides begin immediately below it.
-        const cassetteHeight = Math.max(2, Math.round(localHeight * 0.11));
-        for (let y = cassetteHeight; y < localHeight; y++) {
-          for (let x = 0; x < guideWidth; x++) {
-            const edge = x === 0 ? 0 : x === guideWidth - 1 ? 2 : 1;
-            const leftPixel = (y * localWidth + x) * 3;
-            const rightPixel = (y * localWidth + (localWidth - 1 - x)) * 3;
-            const color = guideColors[edge];
-            for (let channel = 0; channel < 3; channel++) {
-              resized.data[leftPixel + channel] = color[channel];
-              resized.data[rightPixel + channel] = color[channel];
-            }
-          }
-        }
-      }
 
       const alpha = Buffer.alloc(localWidth * localHeight);
       for (let p = 0, i = 0; p < resized.data.length; p += 3, i++) {
