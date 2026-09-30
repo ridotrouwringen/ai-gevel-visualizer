@@ -20,7 +20,6 @@ export function Visualizer() {
   const [image, setImage] = useState<string | null>(null)
   const [spots, setSpots] = useState<WindowSpot[]>(DEFAULT_SPOTS)
   
-  const [selectedIds, setSelectedIds] = useState<string[]>(DEFAULT_SPOTS.map((s) => s.id))
   const [activeId, setActiveId] = useState<string | null>(DEFAULT_SPOTS[0]?.id ?? null)
   const [applyToAll, setApplyToAll] = useState(false)
 
@@ -29,9 +28,7 @@ export function Visualizer() {
   function handleUpload(dataUrl: string) {
     setImage(dataUrl)
     setSpots(DEFAULT_SPOTS)
-    const initialIds = DEFAULT_SPOTS.map((s) => s.id)
-    setSelectedIds(initialIds)
-    setActiveId(initialIds[0] ?? null)
+    setActiveId(DEFAULT_SPOTS[0]?.id ?? null)
     setStage("configure")
   }
 
@@ -56,6 +53,14 @@ export function Visualizer() {
     setSelectedIds([])
   }
 
+  function handleAddSpot(spot: Omit<WindowSpot, "id" | "number" | "label">) {
+    const number = spots.length + 1
+    const id = crypto.randomUUID()
+    const next = { ...spot, id, number, label: `Locatie ${number}` }
+    setSpots((prev) => [...prev, next])
+    setActiveId(id)
+  }
+
   function handleUpdate(patch: Partial<WindowSpot>) {
     setSpots((prev) =>
       prev.map((s) => {
@@ -76,7 +81,6 @@ export function Visualizer() {
     setStage("upload")
     setImage(null)
     setSpots(DEFAULT_SPOTS)
-    setSelectedIds(DEFAULT_SPOTS.map((s) => s.id))
     setActiveId(DEFAULT_SPOTS[0]?.id ?? null)
     setApplyToAll(false)
   }
@@ -104,10 +108,11 @@ export function Visualizer() {
             <FacadeCanvas
               src={image}
               spots={spots}
-              selectedIds={selectedIds}
-              onToggle={handleToggleWindow}
-              onSelectAll={handleSelectAll}
-              onDeselectAll={handleDeselectAll}
+              activeId={activeId}
+              drawingMode={activeSpot?.product === "knikarmscherm" ? "line" : "point"}
+              onAddSpot={handleAddSpot}
+              onSelectSpot={setActiveId}
+              onRemoveSpot={() => undefined}
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Button variant="ghost" size="sm" onClick={handleReset} className="gap-2 text-muted-foreground cursor-pointer">
@@ -115,7 +120,7 @@ export function Visualizer() {
                 Andere foto
               </Button>
               <p className="text-xs text-muted-foreground">
-                {spots.length} zones gedetecteerd &middot; {selectedIds.length} geselecteerd
+                {spots.length} locaties geselecteerd
               </p>
             </div>
 
@@ -137,11 +142,11 @@ export function Visualizer() {
               <Button
                 size="lg"
                 onClick={handleGenerate}
-                disabled={stage === "generating" || selectedIds.length === 0}
+                disabled={stage === "generating" || spots.length === 0}
                 className="mt-6 w-full gap-2 bg-brand text-brand-foreground hover:bg-brand/90 disabled:opacity-50 cursor-pointer"
               >
                 <Wand2 className="h-4.5 w-4.5" aria-hidden="true" />
-                {selectedIds.length === 0 ? "Selecteer minimaal 1 raam" : "Genereer Visualisatie"}
+                {spots.length === 0 ? "Selecteer minimaal 1 raam" : "Genereer Visualisatie"}
               </Button>
             </Card>
           </div>
@@ -164,7 +169,6 @@ export function Visualizer() {
             <BeforeAfterSlider beforeSrc={image} afterSrc="/facade-after.png" />
             <div className="flex flex-wrap gap-2">
               {spots
-                .filter((spot) => selectedIds.includes(spot.id))
                 .map((spot) => (
                   <span
                     key={spot.id}
