@@ -3,6 +3,9 @@ import Replicate from "replicate";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
+import { compositeGeneratedProduct } from "@/lib/image-composite";
+import { buildLineMask, buildRasterMask, getSelectionBounds } from "@/lib/masks";
+import { generationInputError } from "@/lib/replicate-validation";
 import {
   SYSTEM_COLORS,
   ZIPSCREEN_FABRICS,
@@ -16,14 +19,13 @@ import {
 export const maxDuration = 120;
 const GENERATION_CONCURRENCY = 1;
 
-type RasterMask = NonNullable<MaskShape["rasterMasks"]>[number];
 type Selection = Pick<
   MaskShape,
   "id" | "sequenceNumber" | "type" | "coordinates" | "rasterMasks" | "productType" | "systemColor" | "fabricColor"
 >;
 
 function dataUriToBuffer(dataUri: string) {
-  const match = dataUri.match(/^data:[^;]+;base64,(.+)$/s);
+  const match = dataUri.match(/^data:[^;]+;base64,([\\s\\S]+)$/);
   if (!match) throw new Error("De afbeelding moet een base64 data-URI zijn.");
   return Buffer.from(match[1], "base64");
 }
@@ -90,39 +92,6 @@ Use IMAGE 1 only to copy the real product construction, proportions and appearan
 The final asset must be a single complete awning on a pure-white background.`;
 }
 
-function buildLineMask(width: number, height: number, coordinates: { x: number; y: number }[]) {
-  const start = coordinates[0], end = coordinates[1];
-  const left = Math.max(0, Math.min(start.x, end.x));
-  const right = Math.min(1, Math.max(start.x, end.x));
-  const top = Math.max(0, Math.min(start.y, end.y));
-  const bottom = Math.min(1, top + 0.20);
-  const x0 = Math.floor(left * width), x1 = Math.ceil(right * width);
-  const y0 = Math.floor(top * height), y1 = Math.ceil(bottom * height);
-  const data = Buffer.alloc(width * height);
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) data[y * width + x] = 255;
-  }
-  return data;
-}
-
-function buildRasterMask(width: number, height: number, masks: RasterMask[]) {
-  const data = Buffer.alloc(width * height);
-  for (const mask of masks) {
-    for (let y = 0; y < mask.height; y++) {
-      const targetY = mask.offsetY + y;
-      if (targetY < 0 || targetY >= height) continue;
-      for (let x = 0; x < mask.width; x++) {
-        const targetX = mask.offsetX + x;
-        if (targetX < 0 || targetX >= width) continue;
-        if (Number(mask.data[y * mask.width + x] ?? 0) > 0) {
-          data[targetY * width + targetX] = 255;
-        }
-      }
-    }
-  }
-  return data;
-}
-
 async function makeMask(width: number, height: number, selection: Selection) {
   const raw =
     selection.type === "LINE"
@@ -134,31 +103,6 @@ async function makeMask(width: number, height: number, selection: Selection) {
   }).png().toBuffer();
 
   return { raw, png };
-}
-
-function getSelectionBounds(maskRaw: Buffer, width: number, height: number) {
-  let left = width;
-  let top = height;
-  let right = -1;
-  let bottom = -1;
-
-  for (let y = 0; y < height; y++) {
-    const rowOffset = y * width;
-    for (let x = 0; x < width; x++) {
-      if (maskRaw[rowOffset + x] > 0) {
-        if (x < left) left = x;
-        if (x > right) right = x;
-        if (y < top) top = y;
-        if (y > bottom) bottom = y;
-      }
-    }
-  }
-
-  if (right < left || bottom < top) {
-    throw new Error("De geselecteerde mask bevat geen actieve pixels.");
-  }
-
-  return { left, top, right: right + 1, bottom: bottom + 1 };
 }
 
 async function makeGeometryGuide(
@@ -517,17 +461,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const invalid = selections.find((selection) => {
-      if (!selection.productType || !selection.systemColor) return true;
-      if (selection.type === "LINE") return selection.coordinates?.length !== 2;
-      return !Array.isArray(selection.rasterMasks) || selection.rasterMasks.length === 0;
+    const validationError = generationInputError(image, selections);
+    const validSelections = selections.filter((selection): selection is Selection => {
+      if (!selection || !selection.productType || !selection.systemColor) return false;
+      if (selection.type === "LINE") return selection.coordinates?.length === 2;
+      return Array.isArray(selection.rasterMasks) && selection.rasterMasks.length > 0;
     });
 
-    if (invalid) {
-      return NextResponse.json(
-        { error: "Een of meer selecties bevatten geen geldige montagegeometrie." },
-        { status: 400 }
-      );
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
     const originalBuffer = dataUriToBuffer(image);
@@ -553,14 +495,14 @@ export async function POST(req: Request) {
     });
 
     const preparedSelections = await Promise.all(
-      selections.map((selection) =>
+      validSelections.map((selection) =>
         prepareSelection(originalBuffer, width, height, selection)
       )
     );
 
     // Detect a possible foreground lamp in parallel with product generation.
     // If detection fails, keep the existing composite unchanged.
-    const hasRollerShutter = selections.some((selection) => selection.productType === "ROLLUIKEN");
+    const hasRollerShutter = validSelections.some((selection) => selection.productType === "ROLLUIKEN");
     const foregroundMaskPromise = hasRollerShutter
       ? detectForegroundLamp(image, apiKey, width, height).catch((error) => {
           console.warn("Voorgrondherkenning overgeslagen:", error);
@@ -712,30 +654,23 @@ export async function POST(req: Request) {
         combinedAlpha[i] = Math.round((alpha[i] * localMaskRaw[i]) / 255);
       }
 
-      const finalOverlay = await sharp(resized.data, {
+      const rgbProduct = await sharp(resized.data, {
         raw: {
           width: resized.info.width,
           height: resized.info.height,
           channels: 3,
         },
-      })
-        .joinChannel(combinedAlpha, {
-          raw: { width: localWidth, height: localHeight, channels: 1 },
-        })
-        .png()
-        .toBuffer();
+      }).raw().toBuffer();
 
-      currentBuffer = await sharp(currentBuffer)
-        .composite([
-          {
-            input: finalOverlay,
-            left: item.bounds.left,
-            top: item.bounds.top,
-            blend: "over",
-          },
-        ])
-        .png()
-        .toBuffer();
+      currentBuffer = await compositeGeneratedProduct(
+        currentBuffer,
+        rgbProduct,
+        combinedAlpha,
+        localWidth,
+        localHeight,
+        item.bounds.left,
+        item.bounds.top
+      );
     }
 
     // Restore original pixels of detected foreground objects only where they
@@ -779,7 +714,7 @@ export async function POST(req: Request) {
       success: true,
       imageUrl: bufferToDataUri(currentBuffer, "image/png"),
       model: "google/nano-banana",
-      selectionCount: selections.length,
+      selectionCount: validSelections.length,
       results,
       message: "Product gegenereerd als geïsoleerde asset en exact in de selectie geplaatst.",
     });
