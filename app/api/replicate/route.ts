@@ -25,7 +25,7 @@ type Selection = Pick<
 >;
 
 function dataUriToBuffer(dataUri: string) {
-  const match = dataUri.match(/^data:[^;]+;base64,([\\s\\S]+)$/);
+  const match = dataUri.match(/^data:[^;]+;base64,(.+)$/s);
   if (!match) throw new Error("De afbeelding moet een base64 data-URI zijn.");
   return Buffer.from(match[1], "base64");
 }
