@@ -21,6 +21,10 @@ export interface WindowSpot {
   fabricColor?: string;
 }
 
+// The legacy visualizer has no automatic window detection. Starting with an
+// empty list keeps it usable while the active configurator uses its own store.
+export const DEFAULT_SPOTS: WindowSpot[] = [];
+
 export const PRODUCTS = [
   { value: 'rolluik', label: 'Rolluik', description: 'Volledige afsluiting en isolatie' },
   { value: 'screen', label: 'Screen', description: 'Strak, windvast en doorzicht naar buiten' },
