@@ -898,7 +898,7 @@ function buildMaskKozijnGroup(
   };
 }
 
-function buildKozijnGroup(detections: Detection[], point: Point): { box: { left: number; top: number; right: number; bottom: number }; polygon: Point2D[]; memberCount: number; memberBoxes: Box[]; clickedIndex: number; selectedMasks: MaskCutout[] } | null {
+function buildKozijnGroup(detections: Detection[], point: Point): { box: { left: number; top: number; right: number; bottom: number }; polygon: Point2D[]; memberCount: number; memberBoxes: Box[]; clickedIndex: number; selectedMasks?: MaskCutout[] } | null {
   const boxes = detections.map((d) => d.box);
   if (!boxes.length) return null;
 
