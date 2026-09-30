@@ -20,7 +20,7 @@ export function Visualizer() {
   const [image, setImage] = useState<string | null>(null)
   const [spots, setSpots] = useState<WindowSpot[]>(DEFAULT_SPOTS)
   const [selectedIds, setSelectedIds] = useState<string[]>(DEFAULT_SPOTS.map((s) => s.id))
-    const [activeId, setActiveId] = useState<string | null>(DEFAULT_SPOTS[0]?.id ?? null)
+  const [activeId, setActiveId] = useState<string | null>(DEFAULT_SPOTS[0]?.id ?? null)
   const [applyToAll, setApplyToAll] = useState(false)
 
   const activeSpot = useMemo(() => spots.find((s) => s.id === activeId) ?? spots[0] ?? null, [spots, activeId])
