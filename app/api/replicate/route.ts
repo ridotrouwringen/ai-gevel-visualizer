@@ -25,9 +25,9 @@ type Selection = Pick<
 >;
 
 function dataUriToBuffer(dataUri: string) {
-  const match = dataUri.match(/^data:[^;]+;base64,([\\s\\S]+));
-  if (!match) throw new Error("De afbeelding moet een base64 data-URI zijn.");
-  return Buffer.from(match[1], "base64");
+  const commaIndex = dataUri.indexOf(",");
+  if (commaIndex < 0) throw new Error("De afbeelding moet een base64 data-URI zijn.");
+  return Buffer.from(dataUri.slice(commaIndex + 1), "base64");
 }
 
 function bufferToDataUri(buffer: Buffer, mime = "image/png") {
