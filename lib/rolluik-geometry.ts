@@ -180,19 +180,24 @@ function stripAlongRight(frame: FrameQuad, width: number): FrameQuad {
   };
 }
 
-function offsetVerticalStrip(frame: FrameQuad, offset: number, side: "left" | "right"): FrameQuad {
-  const topDirection =
+function offsetVerticalStrip(frame: FrameQuad, width: number, side: "left" | "right"): FrameQuad {
+  const topOutward =
     side === "left"
-      ? unit({ x: frame.topRight.x - frame.topLeft.x, y: frame.topRight.y - frame.topLeft.y })
-      : unit({ x: frame.topLeft.x - frame.topRight.x, y: frame.topLeft.y - frame.topRight.y });
+      ? unit({ x: frame.topLeft.x - frame.topRight.x, y: frame.topLeft.y - frame.topRight.y })
+      : unit({ x: frame.topRight.x - frame.topLeft.x, y: frame.topRight.y - frame.topLeft.y });
 
-  const bottomDirection =
+  const bottomOutward =
     side === "left"
-      ? unit({ x: frame.bottomRight.x - frame.bottomLeft.x, y: frame.bottomRight.y - frame.bottomLeft.y })
-      : unit({ x: frame.bottomLeft.x - frame.bottomRight.x, y: frame.bottomLeft.y - frame.bottomRight.y });
+      ? unit({ x: frame.bottomLeft.x - frame.bottomRight.x, y: frame.bottomLeft.y - frame.bottomRight.y })
+      : unit({ x: frame.bottomRight.x - frame.bottomLeft.x, y: frame.bottomRight.y - frame.bottomLeft.y });
 
-  const outerTop = side === "left" ? add(frame.topLeft, scale(topDirection, -offset)) : add(frame.topRight, scale(topDirection, -offset));
-  const outerBottom = side === "left" ? add(frame.bottomLeft, scale(bottomDirection, -offset)) : add(frame.bottomRight, scale(bottomDirection, -offset));
+  const outerTop = side === "left"
+    ? add(frame.topLeft, scale(topOutward, width))
+    : add(frame.topRight, scale(topOutward, width));
+
+  const outerBottom = side === "left"
+    ? add(frame.bottomLeft, scale(bottomOutward, width))
+    : add(frame.bottomRight, scale(bottomOutward, width));
 
   return side === "left"
     ? { topLeft: outerTop, topRight: frame.topLeft, bottomRight: frame.bottomLeft, bottomLeft: outerBottom }
