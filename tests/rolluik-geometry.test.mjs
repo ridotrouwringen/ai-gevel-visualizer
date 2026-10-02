@@ -1,6 +1,6 @@
-import { buildRolluikGeometry, buildRolluikGeometryFromPhysicalFrame, ROLLUIK_DIMENSIONS_MM, type FrameQuad } from "../.test-build/lib/rolluik-geometry.js";
+import { buildRolluikGeometry, buildRolluikGeometryFromPhysicalFrame, ROLLUIK_DIMENSIONS_MM } from "../.test-build/lib/rolluik-geometry.js";
 
-const frame: FrameQuad = {
+const frame = {
   topLeft: { x: 100, y: 100 },
   topRight: { x: 1100, y: 100 },
   bottomRight: { x: 1100, y: 2100 },
@@ -46,7 +46,7 @@ console.log("Rolluik geometry tests: OK");
 
 // Perspective-aware physical geometry must keep the product attached to the
 // detected frame while projecting the fixed 50/180/200 mm dimensions.
-const perspectiveFrame: FrameQuad = {
+const perspectiveFrame = {
   topLeft: { x: 200, y: 200 },
   topRight: { x: 1000, y: 230 },
   bottomRight: { x: 1120, y: 1900 },
