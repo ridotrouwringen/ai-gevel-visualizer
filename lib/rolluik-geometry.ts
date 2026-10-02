@@ -138,7 +138,7 @@ export function buildRolluikGeometryFromPhysicalFrame(
       rightGuide: buildGuide(frame, guideTop, guideBottom, "right", topEdge, bottomEdge),
       cassette,
       bottomRail,
-      slats: buildSlats(frame, ROLLUIK_DIMENSIONS_MM.cassetteHeight, ROLLUIK_DIMENSIONS_MM.bottomRailHeight, frameHeightMm, slatHeight),
+      slats: buildSlats(frame, ROLLUIK_DIMENSIONS_MM.cassetteHeight, ROLLUIK_DIMENSIONS_MM.bottomRailHeight, frameHeightMm),
     };
   }
 
@@ -173,7 +173,7 @@ export function buildRolluikGeometryFromPhysicalFrame(
     rightGuide,
     cassette,
     bottomRail,
-    slats: buildSlats(frame, 0, ROLLUIK_DIMENSIONS_MM.bottomRailHeight, frameHeightMm, slatHeight),
+    slats: buildSlats(frame, 0, ROLLUIK_DIMENSIONS_MM.bottomRailHeight, frameHeightMm),
   };
 }
 
@@ -204,8 +204,8 @@ function buildGuide(
 ): FrameQuad {
   const top = side === "left" ? frame.topLeft : frame.topRight;
   const bottom = side === "left" ? frame.bottomLeft : frame.bottomRight;
-  const topDirection = side === "left" ? topEdge : scale(topEdge, -1);
-  const bottomDirection = side === "left" ? bottomEdge : scale(bottomEdge, -1);
+  const topDirection = side === "left" ? scale(topEdge, -1) : topEdge;
+  const bottomDirection = side === "left" ? scale(bottomEdge, -1) : bottomEdge;
 
   const outerTop = add(top, scale(unit(topDirection), topOffset));
   const outerBottom = add(bottom, scale(unit(bottomDirection), bottomOffset));
@@ -220,7 +220,6 @@ function buildSlats(
   topOffsetMm: number,
   bottomOffsetMm: number,
   frameHeightMm: number,
-  slatHeightPx: number,
 ): FrameQuad[] {
   const availableMm = frameHeightMm - topOffsetMm - bottomOffsetMm;
   const count = Math.max(1, Math.floor(availableMm / ROLLUIK_DIMENSIONS_MM.slatHeight));
