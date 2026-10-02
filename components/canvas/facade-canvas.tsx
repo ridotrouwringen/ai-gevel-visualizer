@@ -113,38 +113,9 @@ export function FacadeCanvas() {
     const imageWidth = imgRef.current?.naturalWidth || canvas.width;
     const imageHeight = imgRef.current?.naturalHeight || canvas.height;
 
-    // Roboflow returns bounding boxes in original-image pixels.
-    // Draw them only as guidance; the existing drag mask remains authoritative.
-    kozijnDetections.forEach((detection, index) => {
-      const left = (detection.x - detection.width / 2) * canvas.width / imageWidth;
-      const width = detection.width * canvas.width / imageWidth;
-
-      // Keep the detected box exactly the same size. Only shift the visual
-      // guidance box 10 source-image pixels downward; detection data and
-      // generation mask remain untouched.
-      const verticalShift = 3;
-      const top = (detection.y - detection.height / 2 + verticalShift) * canvas.height / imageHeight;
-      const height = detection.height * canvas.height / imageHeight;
-
-      ctx.save();
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(left, top, width, height);
-      ctx.setLineDash([]);
-
-      ctx.fillStyle = '#22c55e';
-      ctx.beginPath();
-      ctx.arc(left + 12, top + 12, 11, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 12px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(index + 1), left + 12, top + 12);
-      ctx.restore();
-    });
+    // De bounding boxes zijn alleen intern nodig als startpunt voor SAM3.
+    // Toon ze bewust niet: bij een schuin gefotografeerd kozijn zou een
+    // rechthoekige overlay de gebruiker de verkeerde geometrie laten zien.
 
     // Exacte kozijnsegmentatie: Roboflow levert de kandidaten, SAM3 levert de pixelcontour.\n    kozijnMasks.forEach((mask, index) => {\n      const imageWidth = imgRef.current?.naturalWidth || canvas.width;\n      const imageHeight = imgRef.current?.naturalHeight || canvas.height;\n      const sx = canvas.width / imageWidth;\n      const sy = canvas.height / imageHeight;\n      ctx.save();\n      ctx.fillStyle = 'rgba(34,197,94,0.22)';\n      ctx.strokeStyle = '#22c55e';\n      ctx.lineWidth = 2;\n      for (let y=0; y<mask.height; y++) {\n        for (let x=0; x<mask.width; x++) {\n          if ((mask.data[y*mask.width+x] || 0) <= 0) continue;\n          ctx.fillRect((mask.offsetX+x)*sx, (mask.offsetY+y)*sy, Math.max(1,sx), Math.max(1,sy));\n        }\n      }\n      ctx.restore();\n    });\n\n    masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
