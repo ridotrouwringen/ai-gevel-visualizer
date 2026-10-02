@@ -368,32 +368,22 @@ export function FacadeCanvas() {
       const clickY = start.y * imageHeight;
       const verticalShift = 3;
 
-      const detection = kozijnDetections.find((d) => {
-        const left = d.x - d.width / 2;
-        const top = d.y - d.height / 2 + verticalShift;
-        return (
-          clickX >= left &&
-          clickX <= left + d.width &&
-          clickY >= top &&
-          clickY <= top + d.height
-        );
+      const selectedKozijn = kozijnMasks.find((mask) => {
+        const localX = Math.floor(clickX - mask.offsetX);
+        const localY = Math.floor(clickY - mask.offsetY);
+        if (localX < 0 || localY < 0 || localX >= mask.width || localY >= mask.height) return false;
+        return (mask.data[localY * mask.width + localX] || 0) > 0;
       });
 
-      if (detection) {
-        const left = Math.max(0, Math.min(imageWidth - 1, Math.floor(detection.x - detection.width / 2)));
-        const top = Math.max(0, Math.min(imageHeight - 1, Math.floor(detection.y - detection.height / 2 + verticalShift)));
-        const right = Math.max(left + 1, Math.min(imageWidth, Math.ceil(detection.x + detection.width / 2)));
-        const bottom = Math.max(top + 1, Math.min(imageHeight, Math.ceil(detection.y + detection.height / 2 + verticalShift)));
-
+      if (selectedKozijn) {
         const rasterMask = {
-          data: Array((right - left) * (bottom - top)).fill(255),
-          width: right - left,
-          height: bottom - top,
-          offsetX: left,
-          offsetY: top,
+          data: selectedKozijn.data.map((value) => value > 0 ? 255 : 0),
+          width: selectedKozijn.width,
+          height: selectedKozijn.height,
+          offsetX: selectedKozijn.offsetX,
+          offsetY: selectedKozijn.offsetY,
         };
 
-        // Do not add the exact same detected kozijn twice.
         const alreadySelected = masks.some((mask) =>
           mask.type === 'RASTER_MASK' &&
           mask.rasterMasks?.some((raster) =>
@@ -413,7 +403,8 @@ export function FacadeCanvas() {
             rasterMasks: [rasterMask],
             productType: activeProduct,
             systemColor: activeSystemColor,
-            fabricColor: activeFabricColor || undefined
+            fabricColor: activeFabricColor || undefined,
+            mountingMode: activeProduct === 'ROLLUIKEN' ? mountingMode : undefined,
           });
         } else {
           setSegmentError('Dit kozijn is al geselecteerd.');
@@ -472,7 +463,8 @@ export function FacadeCanvas() {
       rasterMasks: [rasterMask],
       productType: activeProduct,
       systemColor: activeSystemColor,
-      fabricColor: activeFabricColor || undefined
+      fabricColor: activeFabricColor || undefined,
+      mountingMode: activeProduct === 'ROLLUIKEN' ? mountingMode : undefined,
     });
   };
 
