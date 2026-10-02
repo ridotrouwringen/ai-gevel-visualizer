@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 
 export const maxDuration = 120;
 
@@ -45,22 +46,82 @@ function collectBoxes(value: unknown, out: Box[] = []): Box[] {
   return out;
 }
 
+function flattenValues(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null;
+  const out: number[] = [];
+  for (const item of value) {
+    if (Array.isArray(item)) {
+      const nested = flattenValues(item);
+      if (!nested) return null;
+      out.push(...nested);
+    } else if (typeof item === "number" || typeof item === "boolean") {
+      out.push(typeof item === "boolean" ? (item ? 1 : 0) : item);
+    } else {
+      return null;
+    }
+  }
+  return out;
+}
+
+function arrayShape(value: unknown): number[] {
+  const shape: number[] = [];
+  let current = value;
+  while (Array.isArray(current)) {
+    shape.push(current.length);
+    current = current[0];
+  }
+  return shape;
+}
+
+function readMaskArray(value: unknown): { data: number[]; shape: number[] } | null {
+  if (Array.isArray(value)) {
+    const data = flattenValues(value);
+    return data ? { data, shape: arrayShape(value) } : null;
+  }
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    const raw = o.data ?? o.values ?? o.array;
+    const data = flattenValues(raw);
+    const shape = Array.isArray(o.shape)
+      ? o.shape.filter((n): n is number => typeof n === "number")
+      : [];
+    return data && shape.length ? { data, shape } : null;
+  }
+  return null;
+}
+
 function collectMasks(value: unknown, out: Mask[] = []): Mask[] {
   if (!value || typeof value !== "object") return out;
-  if (Array.isArray(value)) { value.forEach((v) => collectMasks(v, out)); return out; }
+  if (Array.isArray(value)) {
+    value.forEach((v) => collectMasks(v, out));
+    return out;
+  }
+
   const o = value as Record<string, unknown>;
-  const masks = o.masks as any;
-  const offsets = (o.masks_offset ?? o.mask_offsets) as any;
-  if (Array.isArray(masks) && Array.isArray(offsets) && Array.isArray(masks[0])) {
-    const count = masks.length, height = masks[0]?.length ?? 0, width = masks[0]?.[0]?.length ?? 0;
-    for (let i=0;i<count;i++) {
-      const flat = (masks[i] as unknown[]).flat(Infinity).map(Number);
-      if (flat.length === width*height && offsets[i*2] !== undefined) {
-        out.push({data:flat.map(v=>v>0?255:0),width,height,offsetX:Number(offsets[i*2]),offsetY:Number(offsets[i*2+1])});
+  const masks = readMaskArray(o.masks);
+  const offsets = readMaskArray(o.masks_offset ?? o.mask_offsets);
+
+  if (masks && offsets && masks.shape.length >= 3) {
+    const width = masks.shape[masks.shape.length - 1];
+    const height = masks.shape[masks.shape.length - 2];
+    const pixelsPerMask = width * height;
+    const count = Math.floor(masks.data.length / pixelsPerMask);
+    if (width > 0 && height > 0 && count > 0 && offsets.data.length >= count * 2) {
+      for (let i = 0; i < count; i++) {
+        out.push({
+          data: masks.data.slice(i * pixelsPerMask, (i + 1) * pixelsPerMask).map((v) => v > 0 ? 255 : 0),
+          width,
+          height,
+          offsetX: Number(offsets.data[i * 2]),
+          offsetY: Number(offsets.data[i * 2 + 1]),
+        });
       }
     }
   }
-  for (const key of ["output","results","predictions","masks"]) collectMasks(o[key], out);
+
+  for (const key of ["output", "results", "predictions", "mask", "masks"]) {
+    if (o[key] !== o.masks) collectMasks(o[key], out);
+  }
   return out;
 }
 
@@ -91,7 +152,16 @@ export async function POST(req: Request) {
 
     const predictions = rfJson?.result?.outputs?.[0]?.predictions?.predictions ?? [];
     const imageInfo = rfJson?.result?.outputs?.[0]?.predictions?.image;
-    const iw = Number(imageInfo?.width ?? 0), ih = Number(imageInfo?.height ?? 0);
+    let iw = Number(imageInfo?.width ?? 0);
+    let ih = Number(imageInfo?.height ?? 0);
+    if (!iw || !ih) {
+      const metadata = await sharp(Buffer.from(base64, "base64")).metadata();
+      iw = Number(metadata.width ?? 0);
+      ih = Number(metadata.height ?? 0);
+    }
+    if (!iw || !ih) {
+      return NextResponse.json({ error: "De afmetingen van de gevel foto konden niet worden bepaald." }, { status: 400 });
+    }
 
     // Roboflow currently supplies detection boxes. Those boxes are proposals only.
     // SAM3 is then used once, in the same request, to turn every proposal into
