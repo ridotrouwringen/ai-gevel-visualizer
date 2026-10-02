@@ -127,9 +127,25 @@ function collectMasks(value: unknown, out: Mask[] = []): Mask[] {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const image = body?.image;
-    if (typeof image !== "string") return NextResponse.json({error:"Afbeelding ontbreekt."},{status:400});
+    const contentType = req.headers.get("content-type") ?? "";
+    let image: string | null = null;
+
+    if (contentType.includes("multipart/form-data")) {
+      const form = await req.formData();
+      const file = form.get("image");
+      if (file instanceof File) {
+        const bytes = Buffer.from(await file.arrayBuffer());
+        const mime = file.type || "image/png";
+        image = `data:${mime};base64,${bytes.toString("base64")}`;
+      }
+    } else {
+      const body = await req.json();
+      image = typeof body?.image === "string" ? body.image : null;
+    }
+
+    if (typeof image !== "string") {
+      return NextResponse.json({ error: "Afbeelding ontbreekt." }, { status: 400 });
+    }
 
     const rfKey = process.env.ROBOFLOW_API_KEY;
     const replicateKey = process.env.REPLICATE_API_TOKEN;
