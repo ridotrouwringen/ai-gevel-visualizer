@@ -50,7 +50,7 @@ export function FacadeCanvas() {
   // unchanged to /api/replicate as selection.rasterMasks.
   const [showGenerationMask, setShowGenerationMask] = useState(true);
   const [kozijnDetections, setKozijnDetections] = useState<Array<{ x: number; y: number; width: number; height: number; confidence: number }>>([]);
-  const [isDetectingKozijnen, setIsDetectingKozijnen] = useState(false);
+  const [isDetectingKozijnen, setIsDetectingKozijnen] = useState(false);\n  const [kozijnMasks, setKozijnMasks] = useState<Array<{ data:number[]; width:number; height:number; offsetX:number; offsetY:number }>>([]);\n  const [mountingMode, setMountingMode] = useState<'IN_DE_DAG' | 'OP_DE_DAG'>('OP_DE_DAG');
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -71,7 +71,7 @@ export function FacadeCanvas() {
         const formData = new FormData();
         formData.append('image', file);
 
-        const response = await fetch('/api/roboflow-test', {
+        const response = await fetch('/api/roboflow-segment', {
           method: 'POST',
           body: formData
         });
@@ -85,7 +85,7 @@ export function FacadeCanvas() {
         const predictions =
           data?.result?.outputs?.[0]?.predictions?.predictions || [];
 
-        setKozijnDetections(predictions);
+        setKozijnDetections(predictions.map((p:any) => ({ x:p.cx * (data.imageWidth || 1), y:p.cy * (data.imageHeight || 1), width:p.w * (data.imageWidth || 1), height:p.h * (data.imageHeight || 1), confidence:p.confidence || 0 })));\n        setKozijnMasks(data?.selectedMasks || []);
       } catch (error) {
         console.error('Roboflow kozijn detectie:', error);
         setKozijnDetections([]);
@@ -146,7 +146,7 @@ export function FacadeCanvas() {
       ctx.restore();
     });
 
-    masks.forEach((mask) => {
+    // Exacte kozijnsegmentatie: Roboflow levert de kandidaten, SAM3 levert de pixelcontour.\n    kozijnMasks.forEach((mask, index) => {\n      const imageWidth = imgRef.current?.naturalWidth || canvas.width;\n      const imageHeight = imgRef.current?.naturalHeight || canvas.height;\n      const sx = canvas.width / imageWidth;\n      const sy = canvas.height / imageHeight;\n      ctx.save();\n      ctx.fillStyle = 'rgba(34,197,94,0.22)';\n      ctx.strokeStyle = '#22c55e';\n      ctx.lineWidth = 2;\n      for (let y=0; y<mask.height; y++) {\n        for (let x=0; x<mask.width; x++) {\n          if ((mask.data[y*mask.width+x] || 0) <= 0) continue;\n          ctx.fillRect((mask.offsetX+x)*sx, (mask.offsetY+y)*sy, Math.max(1,sx), Math.max(1,sy));\n        }\n      }\n      ctx.restore();\n    });\n\n    masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
 
       if (mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) {
@@ -279,7 +279,7 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, dragStart, dragCurrent, originalImage, showGenerationMask, kozijnDetections]);
+  }, [masks, dragStart, dragCurrent, originalImage, showGenerationMask, kozijnDetections, kozijnMasks, mountingMode]);
 
   // The drag rectangle is the complete and authoritative generation mask for
   // rolluiken and screens. There is deliberately no kozijn search, SAM3
@@ -526,7 +526,7 @@ export function FacadeCanvas() {
         </button>
       )}
 
-      {isDetectingKozijnen && (
+\n      {kozijnMasks.length > 0 && (\n        <div className="absolute top-16 right-4 z-20 bg-white/95 text-gray-900 rounded-lg shadow-lg border p-2 flex gap-1">\n          <span className="text-xs font-semibold px-2 py-2">Montage</span>\n          <button type="button" onClick={() => setMountingMode('IN_DE_DAG')} className={`px-3 py-1.5 rounded text-xs font-medium ${mountingMode === 'IN_DE_DAG' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>In de dag</button>\n          <button type="button" onClick={() => setMountingMode('OP_DE_DAG')} className={`px-3 py-1.5 rounded text-xs font-medium ${mountingMode === 'OP_DE_DAG' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>Op de dag</button>\n        </div>\n      )}\n      {isDetectingKozijnen && (
         <div className="absolute top-16 left-4 z-20 bg-green-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
           Kozijnen zoeken...
         </div>
