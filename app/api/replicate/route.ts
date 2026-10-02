@@ -21,7 +21,7 @@ const GENERATION_CONCURRENCY = 1;
 
 type Selection = Pick<
   MaskShape,
-  "id" | "sequenceNumber" | "type" | "coordinates" | "rasterMasks" | "productType" | "systemColor" | "fabricColor"
+  "id" | "sequenceNumber" | "type" | "coordinates" | "rasterMasks" | "productType" | "systemColor" | "fabricColor" | "mountingMode"
 >;
 
 function dataUriToBuffer(dataUri: string) {
