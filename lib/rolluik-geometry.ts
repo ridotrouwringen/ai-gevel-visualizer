@@ -28,10 +28,7 @@ export type RolluikGeometry = {
 };
 
 function lerp(a: Point, b: Point, t: number): Point {
-  return {
-    x: a.x + (b.x - a.x) * t,
-    y: a.y + (b.y - a.y) * t,
-  };
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
 function add(a: Point, b: Point): Point {
@@ -48,12 +45,141 @@ function unit(a: Point): Point {
   return scale(a, 1 / length);
 }
 
+function distance(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function pointAtPhysicalHeight(frame: FrameQuad, heightMm: number, frameHeightMm: number): [Point, Point] {
+  const t = heightMm / frameHeightMm;
+  return [
+    lerp(frame.topLeft, frame.bottomLeft, t),
+    lerp(frame.topRight, frame.bottomRight, t),
+  ];
+}
+
 /**
- * Bouwt een rolluik op basis van het gedetecteerde kozijn.
- *
- * scalePxPerMm moet uit een echte schaalreferentie komen. We gebruiken bewust
- * geen vaste pixel-offsets: 200 mm is op een schuine gevel niet hetzelfde
- * aantal pixels als 200 mm elders in de foto.
+ * Bouwt een rolluik vanuit een kozijn waarvan de werkelijke breedte/hoogte
+ * bekend is. Dit is de voorkeursroute: fysieke maten worden via de vier
+ * kozijnhoeken naar de foto geprojecteerd, in plaats van met één vaste
+ * pixels-per-mm schaal.
+ */
+export function buildRolluikGeometryFromPhysicalFrame(
+  frame: FrameQuad,
+  frameWidthMm: number,
+  frameHeightMm: number,
+  mountingMode: RolluikMountingMode = "OP_DE_DAG",
+): RolluikGeometry {
+  if (!Number.isFinite(frameWidthMm) || frameWidthMm <= 0) {
+    throw new Error("Een geldige fysieke kozijnbreedte in mm is nodig.");
+  }
+  if (!Number.isFinite(frameHeightMm) || frameHeightMm <= 0) {
+    throw new Error("Een geldige fysieke kozijnhoogte in mm is nodig.");
+  }
+
+  const topEdge = unit({
+    x: frame.topRight.x - frame.topLeft.x,
+    y: frame.topRight.y - frame.topLeft.y,
+  });
+  const bottomEdge = unit({
+    x: frame.bottomRight.x - frame.bottomLeft.x,
+    y: frame.bottomRight.y - frame.bottomLeft.y,
+  });
+  const leftEdge = unit({
+    x: frame.bottomLeft.x - frame.topLeft.x,
+    y: frame.bottomLeft.y - frame.topLeft.y,
+  });
+  const rightEdge = unit({
+    x: frame.bottomRight.x - frame.topRight.x,
+    y: frame.bottomRight.y - frame.topRight.y,
+  });
+
+  const widthAtTop = distance(frame.topLeft, frame.topRight);
+  const widthAtBottom = distance(frame.bottomLeft, frame.bottomRight);
+  const pxPerMmTop = widthAtTop / frameWidthMm;
+  const pxPerMmBottom = widthAtBottom / frameWidthMm;
+  const pxPerMmLeft = distance(frame.topLeft, frame.bottomLeft) / frameHeightMm;
+  const pxPerMmRight = distance(frame.topRight, frame.bottomRight) / frameHeightMm;
+
+  const avgVerticalPxPerMm = (pxPerMmLeft + pxPerMmRight) / 2;
+  const guideTop = ROLLUIK_DIMENSIONS_MM.guideWidth * pxPerMmTop;
+  const guideBottom = ROLLUIK_DIMENSIONS_MM.guideWidth * pxPerMmBottom;
+  const cassetteTopHeight = ROLLUIK_DIMENSIONS_MM.cassetteHeight * avgVerticalPxPerMm;
+  const cassetteOffsetHeight =
+    ROLLUIK_DIMENSIONS_MM.opDeDagCassetteOffsetAboveFrame * avgVerticalPxPerMm;
+  const bottomRailHeight = ROLLUIK_DIMENSIONS_MM.bottomRailHeight * avgVerticalPxPerMm;
+  const slatHeight = ROLLUIK_DIMENSIONS_MM.slatHeight * avgVerticalPxPerMm;
+
+  if (mountingMode === "IN_DE_DAG") {
+    const cassetteTop = pointAtPhysicalHeight(frame, ROLLUIK_DIMENSIONS_MM.cassetteHeight, frameHeightMm);
+    const bottomRailTop = pointAtPhysicalHeight(
+      frame,
+      frameHeightMm - ROLLUIK_DIMENSIONS_MM.bottomRailHeight,
+      frameHeightMm,
+    );
+
+    const cassette: FrameQuad = {
+      topLeft: frame.topLeft,
+      topRight: frame.topRight,
+      bottomRight: cassetteTop[1],
+      bottomLeft: cassetteTop[0],
+    };
+
+    const bottomRail: FrameQuad = {
+      topLeft: bottomRailTop[0],
+      topRight: bottomRailTop[1],
+      bottomRight: frame.bottomRight,
+      bottomLeft: frame.bottomLeft,
+    };
+
+    return {
+      mountingMode,
+      pantser: frame,
+      leftGuide: buildGuide(frame, -guideTop, -guideBottom, "left", topEdge, bottomEdge),
+      rightGuide: buildGuide(frame, guideTop, guideBottom, "right", topEdge, bottomEdge),
+      cassette,
+      bottomRail,
+      slats: buildSlats(frame, ROLLUIK_DIMENSIONS_MM.cassetteHeight, ROLLUIK_DIMENSIONS_MM.bottomRailHeight, frameHeightMm, slatHeight),
+    };
+  }
+
+  // OP DE DAG: het pantser volgt exact het kozijn. Geleiders liggen 50 mm
+  // buiten het pantser. De bak ligt 200 mm boven het kozijn en is 180 mm hoog.
+  const leftGuide = buildGuide(frame, -guideTop, -guideBottom, "left", topEdge, bottomEdge);
+  const rightGuide = buildGuide(frame, guideTop, guideBottom, "right", topEdge, bottomEdge);
+
+  const cassetteBottomLeft = add(frame.topLeft, scale(leftEdge, -cassetteOffsetHeight));
+  const cassetteBottomRight = add(frame.topRight, scale(rightEdge, -cassetteOffsetHeight));
+  const cassetteTopLeft = add(cassetteBottomLeft, scale(leftEdge, -cassetteTopHeight));
+  const cassetteTopRight = add(cassetteBottomRight, scale(rightEdge, -cassetteTopHeight));
+
+  const cassette: FrameQuad = {
+    topLeft: cassetteTopLeft,
+    topRight: cassetteTopRight,
+    bottomRight: cassetteBottomRight,
+    bottomLeft: cassetteBottomLeft,
+  };
+
+  const bottomRail: FrameQuad = {
+    topLeft: add(frame.bottomLeft, scale(leftEdge, -bottomRailHeight)),
+    topRight: add(frame.bottomRight, scale(rightEdge, -bottomRailHeight)),
+    bottomRight: frame.bottomRight,
+    bottomLeft: frame.bottomLeft,
+  };
+
+  return {
+    mountingMode,
+    pantser: frame,
+    leftGuide,
+    rightGuide,
+    cassette,
+    bottomRail,
+    slats: buildSlats(frame, 0, ROLLUIK_DIMENSIONS_MM.bottomRailHeight, frameHeightMm, slatHeight),
+  };
+}
+
+/**
+ * Backwards-compatible scalar version. Useful for flat test images; production
+ * geometry should use buildRolluikGeometryFromPhysicalFrame.
  */
 export function buildRolluikGeometry(
   frame: FrameQuad,
@@ -63,169 +189,61 @@ export function buildRolluikGeometry(
   if (!Number.isFinite(scalePxPerMm) || scalePxPerMm <= 0) {
     throw new Error("Een geldige pixels-per-mm schaal is nodig voor rolluikgeometrie.");
   }
-
-  const top = unit({
-    x: frame.topRight.x - frame.topLeft.x,
-    y: frame.topRight.y - frame.topLeft.y,
-  });
-  const left = unit({
-    x: frame.bottomLeft.x - frame.topLeft.x,
-    y: frame.bottomLeft.y - frame.topLeft.y,
-  });
-  const right = unit({
-    x: frame.bottomRight.x - frame.topRight.x,
-    y: frame.bottomRight.y - frame.topRight.y,
-  });
-  const bottom = unit({
-    x: frame.bottomRight.x - frame.bottomLeft.x,
-    y: frame.bottomRight.y - frame.bottomLeft.y,
-  });
-
-  const guide = ROLLUIK_DIMENSIONS_MM.guideWidth * scalePxPerMm;
-  const cassette = ROLLUIK_DIMENSIONS_MM.cassetteHeight * scalePxPerMm;
-  const bottomRail = ROLLUIK_DIMENSIONS_MM.bottomRailHeight * scalePxPerMm;
-  const slat = ROLLUIK_DIMENSIONS_MM.slatHeight * scalePxPerMm;
-  const cassetteOffset = ROLLUIK_DIMENSIONS_MM.opDeDagCassetteOffsetAboveFrame * scalePxPerMm;
-
-  if (mountingMode === "IN_DE_DAG") {
-    const cassetteQuad: FrameQuad = {
-      topLeft: frame.topLeft,
-      topRight: frame.topRight,
-      bottomRight: add(frame.topRight, scale(right, cassette)),
-      bottomLeft: add(frame.topLeft, scale(left, cassette)),
-    };
-
-    const bottomRailQuad: FrameQuad = {
-      topLeft: add(frame.bottomLeft, scale(left, -bottomRail)),
-      topRight: add(frame.bottomRight, scale(right, -bottomRail)),
-      bottomRight: frame.bottomRight,
-      bottomLeft: frame.bottomLeft,
-    };
-
-    const usableHeight = distance(frame.topLeft, frame.bottomLeft) - cassette - bottomRail;
-    const slatCount = Math.max(1, Math.floor(usableHeight / slat));
-
-    return {
-      mountingMode,
-      pantser: frame,
-      leftGuide: stripAlongLeft(frame, guide),
-      rightGuide: stripAlongRight(frame, guide),
-      cassette: cassetteQuad,
-      bottomRail: bottomRailQuad,
-      slats: buildSlats(frame, cassette, bottomRail, slat, slatCount),
-    };
-  }
-
-  // OP DE DAG:
-  // - pantser blijft exact de maat van het gedetecteerde kozijn;
-  // - geleiders komen 50 mm buiten het pantser;
-  // - de bak is 180 mm hoog;
-  // - de bak begint 200 mm boven het gedetecteerde kozijn.
-  const pantser = frame;
-  const leftGuide = offsetVerticalStrip(frame, -guide, "left");
-  const rightGuide = offsetVerticalStrip(frame, guide, "right");
-
-  const cassetteBottomLeft = add(frame.topLeft, scale(left, -cassetteOffset));
-  const cassetteBottomRight = add(frame.topRight, scale(right, -cassetteOffset));
-  const cassetteTopLeft = add(cassetteBottomLeft, scale(left, -cassette));
-  const cassetteTopRight = add(cassetteBottomRight, scale(right, -cassette));
-
-  const cassetteQuad: FrameQuad = {
-    topLeft: cassetteTopLeft,
-    topRight: cassetteTopRight,
-    bottomRight: cassetteBottomRight,
-    bottomLeft: cassetteBottomLeft,
-  };
-
-  const bottomRailQuad: FrameQuad = {
-    topLeft: add(frame.bottomLeft, scale(left, -bottomRail)),
-    topRight: add(frame.bottomRight, scale(right, -bottomRail)),
-    bottomRight: frame.bottomRight,
-    bottomLeft: frame.bottomLeft,
-  };
-
-  const usableHeight = distance(frame.topLeft, frame.bottomLeft) - bottomRail;
-  const slatCount = Math.max(1, Math.floor(usableHeight / slat));
-
-  return {
-    mountingMode,
-    pantser,
-    leftGuide,
-    rightGuide,
-    cassette: cassetteQuad,
-    bottomRail: bottomRailQuad,
-    slats: buildSlats(frame, 0, bottomRail, slat, slatCount),
-  };
+  const frameWidthMm = distance(frame.topLeft, frame.topRight) / scalePxPerMm;
+  const frameHeightMm = distance(frame.topLeft, frame.bottomLeft) / scalePxPerMm;
+  return buildRolluikGeometryFromPhysicalFrame(frame, frameWidthMm, frameHeightMm, mountingMode);
 }
 
-function distance(a: Point, b: Point) {
-  return Math.hypot(b.x - a.x, b.y - a.y);
-}
+function buildGuide(
+  frame: FrameQuad,
+  topOffset: number,
+  bottomOffset: number,
+  side: "left" | "right",
+  topEdge: Point,
+  bottomEdge: Point,
+): FrameQuad {
+  const top = side === "left" ? frame.topLeft : frame.topRight;
+  const bottom = side === "left" ? frame.bottomLeft : frame.bottomRight;
+  const topDirection = side === "left" ? topEdge : scale(topEdge, -1);
+  const bottomDirection = side === "left" ? bottomEdge : scale(bottomEdge, -1);
 
-function stripAlongLeft(frame: FrameQuad, width: number): FrameQuad {
-  return {
-    topLeft: frame.topLeft,
-    topRight: add(frame.topLeft, scale(unit({ x: frame.topRight.x - frame.topLeft.x, y: frame.topRight.y - frame.topLeft.y }), width)),
-    bottomRight: add(frame.bottomLeft, scale(unit({ x: frame.bottomRight.x - frame.bottomLeft.x, y: frame.bottomRight.y - frame.bottomLeft.y }), width)),
-    bottomLeft: frame.bottomLeft,
-  };
-}
-
-function stripAlongRight(frame: FrameQuad, width: number): FrameQuad {
-  return {
-    topLeft: add(frame.topRight, scale(unit({ x: frame.topLeft.x - frame.topRight.x, y: frame.topLeft.y - frame.topRight.y }), width)),
-    topRight: frame.topRight,
-    bottomRight: frame.bottomRight,
-    bottomLeft: add(frame.bottomRight, scale(unit({ x: frame.bottomLeft.x - frame.bottomRight.x, y: frame.bottomLeft.y - frame.bottomRight.y }), width)),
-  };
-}
-
-function offsetVerticalStrip(frame: FrameQuad, width: number, side: "left" | "right"): FrameQuad {
-  const topOutward =
-    side === "left"
-      ? unit({ x: frame.topLeft.x - frame.topRight.x, y: frame.topLeft.y - frame.topRight.y })
-      : unit({ x: frame.topRight.x - frame.topLeft.x, y: frame.topRight.y - frame.topLeft.y });
-
-  const bottomOutward =
-    side === "left"
-      ? unit({ x: frame.bottomLeft.x - frame.bottomRight.x, y: frame.bottomLeft.y - frame.bottomRight.y })
-      : unit({ x: frame.bottomRight.x - frame.bottomLeft.x, y: frame.bottomRight.y - frame.bottomLeft.y });
-
-  const outerTop = side === "left"
-    ? add(frame.topLeft, scale(topOutward, width))
-    : add(frame.topRight, scale(topOutward, width));
-
-  const outerBottom = side === "left"
-    ? add(frame.bottomLeft, scale(bottomOutward, width))
-    : add(frame.bottomRight, scale(bottomOutward, width));
+  const outerTop = add(top, scale(unit(topDirection), topOffset));
+  const outerBottom = add(bottom, scale(unit(bottomDirection), bottomOffset));
 
   return side === "left"
-    ? { topLeft: outerTop, topRight: frame.topLeft, bottomRight: frame.bottomLeft, bottomLeft: outerBottom }
-    : { topLeft: frame.topRight, topRight: outerTop, bottomRight: outerBottom, bottomLeft: frame.bottomRight };
+    ? { topLeft: outerTop, topRight: top, bottomRight: bottom, bottomLeft: outerBottom }
+    : { topLeft: top, topRight: outerTop, bottomRight: outerBottom, bottomLeft: bottom };
 }
 
 function buildSlats(
   frame: FrameQuad,
-  topOffset: number,
-  bottomOffset: number,
-  slatHeight: number,
-  count: number,
+  topOffsetMm: number,
+  bottomOffsetMm: number,
+  frameHeightMm: number,
+  slatHeightPx: number,
 ): FrameQuad[] {
+  const availableMm = frameHeightMm - topOffsetMm - bottomOffsetMm;
+  const count = Math.max(1, Math.floor(availableMm / ROLLUIK_DIMENSIONS_MM.slatHeight));
   const result: FrameQuad[] = [];
-  for (let i = 0; i < count; i++) {
-    const topT = topOffset + i * slatHeight;
-    const bottomT = Math.min(topT + slatHeight, distance(frame.topLeft, frame.bottomLeft) - bottomOffset);
-    if (bottomT <= topT) break;
 
-    const ratioTop = topT / distance(frame.topLeft, frame.bottomLeft);
-    const ratioBottom = bottomT / distance(frame.topLeft, frame.bottomLeft);
+  for (let i = 0; i < count; i++) {
+    const topMm = topOffsetMm + i * ROLLUIK_DIMENSIONS_MM.slatHeight;
+    const bottomMm = Math.min(
+      topMm + ROLLUIK_DIMENSIONS_MM.slatHeight,
+      frameHeightMm - bottomOffsetMm,
+    );
+    if (bottomMm <= topMm) break;
+
+    const topT = topMm / frameHeightMm;
+    const bottomT = bottomMm / frameHeightMm;
 
     result.push({
-      topLeft: lerp(frame.topLeft, frame.bottomLeft, ratioTop),
-      topRight: lerp(frame.topRight, frame.bottomRight, ratioTop),
-      bottomRight: lerp(frame.topRight, frame.bottomRight, ratioBottom),
-      bottomLeft: lerp(frame.topLeft, frame.bottomLeft, ratioBottom),
+      topLeft: lerp(frame.topLeft, frame.bottomLeft, topT),
+      topRight: lerp(frame.topRight, frame.bottomRight, topT),
+      bottomRight: lerp(frame.topRight, frame.bottomRight, bottomT),
+      bottomLeft: lerp(frame.topLeft, frame.bottomLeft, bottomT),
     });
   }
+
   return result;
 }
