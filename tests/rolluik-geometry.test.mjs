@@ -42,3 +42,32 @@ const slatHeight = geometry.slats[0].bottomLeft.y - geometry.slats[0].topLeft.y;
 if (slatHeight !== 45) throw new Error("Elke lamel moet 45 px hoog zijn bij 1 px/mm.");
 
 console.log("Rolluik geometry tests: OK");
+
+
+// Perspective-aware physical geometry must keep the product attached to the
+// detected frame while projecting the fixed 50/180/200 mm dimensions.
+const perspectiveFrame: FrameQuad = {
+  topLeft: { x: 200, y: 200 },
+  topRight: { x: 1000, y: 230 },
+  bottomRight: { x: 1120, y: 1900 },
+  bottomLeft: { x: 120, y: 1850 },
+};
+const perspective = buildRolluikGeometryFromPhysicalFrame(
+  perspectiveFrame,
+  1000,
+  2000,
+  "OP_DE_DAG",
+);
+
+if (!(perspective.leftGuide.topLeft.x < perspective.leftGuide.topRight.x)) {
+  throw new Error("Linker geleider moet buiten het kozijn liggen.");
+}
+if (!(perspective.rightGuide.topRight.x > perspective.rightGuide.topLeft.x)) {
+  throw new Error("Rechter geleider moet buiten het kozijn liggen.");
+}
+if (perspective.pantser.topLeft.x !== perspectiveFrame.topLeft.x ||
+    perspective.pantser.bottomRight.y !== perspectiveFrame.bottomRight.y) {
+  throw new Error("Het pantser mag de gedetecteerde kozijnhoeken niet veranderen.");
+}
+
+console.log("Perspective rolluik geometry test: OK");
