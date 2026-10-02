@@ -58,6 +58,7 @@ export function FacadeCanvas() {
     const file = e.target.files?.[0];
     if (!file) return;
     setKozijnDetections([]);
+    setKozijnMasks([]);
     setIsDetectingKozijnen(true);
 
     const reader = new FileReader();
@@ -345,9 +346,8 @@ export function FacadeCanvas() {
 
     const MIN_DRAG_SIZE = 0.01;
 
-    // A short click on a detected kozijn selects that complete detected box.
-    // The box keeps its original width/height and uses the same 10px downward
-    // visual correction as the green guidance box.
+    // Een korte klik op een gesegmenteerd kozijn selecteert exact het
+    // door SAM3 teruggegeven pixelmasker. Een rechthoek wordt dus niet gebruikt.
     if (Math.max(width, height) < MIN_DRAG_SIZE && activeProduct !== 'KNIKARMSCHERMEN') {
       const imageWidth = imgRef.current?.naturalWidth;
       const imageHeight = imgRef.current?.naturalHeight;
@@ -359,8 +359,6 @@ export function FacadeCanvas() {
 
       const clickX = start.x * imageWidth;
       const clickY = start.y * imageHeight;
-      const verticalShift = 3;
-
       const selectedKozijn = kozijnMasks.find((mask) => {
         const localX = Math.floor(clickX - mask.offsetX);
         const localY = Math.floor(clickY - mask.offsetY);
