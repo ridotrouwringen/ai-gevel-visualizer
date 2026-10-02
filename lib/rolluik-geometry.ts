@@ -144,7 +144,7 @@ export function buildRolluikGeometryFromPhysicalFrame(
 
   // OP DE DAG: het pantser volgt exact het kozijn. Geleiders liggen 50 mm
   // buiten het pantser. De bak ligt 200 mm boven het kozijn en is 180 mm hoog.
-  const leftGuide = buildGuide(frame, -guideTop, -guideBottom, "left", topEdge, bottomEdge);
+  const leftGuide = buildGuide(frame, guideTop, guideBottom, "left", topEdge, bottomEdge);
   const rightGuide = buildGuide(frame, guideTop, guideBottom, "right", topEdge, bottomEdge);
 
   const cassetteBottomLeft = add(frame.topLeft, scale(leftEdge, -cassetteOffsetHeight));
