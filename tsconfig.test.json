@@ -8,5 +8,5 @@
     "target": "ES2020",
     "incremental": false
   },
-  "include": ["lib/image-composite.ts", "lib/masks.ts", "lib/replicate-validation.ts", "types/visualizer.ts"]
+  "include": ["lib/image-composite.ts", "lib/masks.ts", "lib/replicate-validation.ts", "lib/rolluik-geometry.ts", "types/visualizer.ts"]
 }
