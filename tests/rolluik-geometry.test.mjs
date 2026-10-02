@@ -1,4 +1,4 @@
-import { buildRolluikGeometry, ROLLUIK_DIMENSIONS_MM, type FrameQuad } from "../.test-build/lib/rolluik-geometry.js";
+import { buildRolluikGeometry, buildRolluikGeometryFromPhysicalFrame, ROLLUIK_DIMENSIONS_MM, type FrameQuad } from "../.test-build/lib/rolluik-geometry.js";
 
 const frame: FrameQuad = {
   topLeft: { x: 100, y: 100 },
