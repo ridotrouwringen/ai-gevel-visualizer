@@ -44,7 +44,8 @@ function productPrompt(selection: Selection) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
-  if (selection.productType === "ROLLUIKEN") {\n    const mounting = selection.mountingMode === "IN_DE_DAG" ? "in de dag: geleiders in de negge" : "op de dag: geleiders buiten de negge op de gevel";
+  if (selection.productType === "ROLLUIKEN") {
+    const mounting = selection.mountingMode === "IN_DE_DAG" ? "in de dag: geleiders in de negge" : "op de dag: geleiders buiten de negge op de gevel";
     return `Create ONE isolated, complete exterior aluminum roller shutter product asset using IMAGE 1 as the physical product reference.
 
 This is NOT a facade editing task and NOT a window detection task.
