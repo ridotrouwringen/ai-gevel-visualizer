@@ -62,7 +62,7 @@ export function FacadeCanvas() {
     // (blob:...) only exist in this browser and cannot be decoded server-side.
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result !== "string" || !/^data:image\\/(png|jpeg|webp);base64,/.test(reader.result)) {
+      if (typeof reader.result !== "string" || !/^data:image\/(png|jpeg|webp);base64,/.test(reader.result)) {
         setSegmentError("De gevel foto kon niet als base64-afbeelding worden ingelezen.");
         return;
       }
