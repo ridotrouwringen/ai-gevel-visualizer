@@ -234,11 +234,10 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, dragStart, dragCurrent, originalImage, showGenerationMask, kozijnDetections, kozijnMasks, mountingMode]);
+  }, [masks, polygonPoints, dragStart, dragCurrent, originalImage, showGenerationMask, mountingMode]);
 
   // The drag rectangle is the complete and authoritative generation mask for
-  // rolluiken and screens. There is deliberately no kozijn search, SAM3
-  // segmentation, mask merging or contour interpretation in this path.
+  // Rolluiken and screens use only the exact four-point user selection.
   const buildPolygonRasterMask = (
     points: { x: number; y: number }[],
     imageWidth: number,
@@ -419,13 +418,11 @@ export function FacadeCanvas() {
       )}
 
 
-      {false && (
-        <div className="absolute top-16 right-4 z-20 bg-white/95 text-gray-900 rounded-lg shadow-lg border p-2 flex gap-1">
+      <div className="absolute top-16 right-4 z-20 bg-white/95 text-gray-900 rounded-lg shadow-lg border p-2 flex gap-1">
           <span className="text-xs font-semibold px-2 py-2">Montage</span>
           <button type="button" onClick={() => setMountingMode('IN_DE_DAG')} className={`px-3 py-1.5 rounded text-xs font-medium ${mountingMode === 'IN_DE_DAG' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>In de dag</button>
           <button type="button" onClick={() => setMountingMode('OP_DE_DAG')} className={`px-3 py-1.5 rounded text-xs font-medium ${mountingMode === 'OP_DE_DAG' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>Op de dag</button>
         </div>
-      )}
 
 
       {showGenerationMask && masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
