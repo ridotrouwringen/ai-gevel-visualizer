@@ -89,13 +89,22 @@ export function FacadeCanvas() {
         }
 
         const boxes = Array.isArray(data?.boxes) ? data.boxes : [];
+        const diagnostics = data?.diagnostics;
         const validBoxes = boxes.map((p: any) => ({
           x: Number(p.x), y: Number(p.y), width: Number(p.width), height: Number(p.height),
           confidence: Number(p.confidence) || 0
         })).filter((p: any) => [p.x, p.y, p.width, p.height].every(Number.isFinite) && p.width > 0 && p.height > 0);
         setKozijnDetections(validBoxes);
         setKozijnMasks(Array.isArray(data?.selectedMasks) ? data.selectedMasks : []);
-        setDetectionMessage(validBoxes.length ? `Roboflow: ${validBoxes.length} kozijn(en) gevonden.` : 'Roboflow heeft geen kozijnen gevonden op deze foto.');
+        if (validBoxes.length) {
+          setDetectionMessage(`Roboflow: ${validBoxes.length} kozijn(en) gevonden.`);
+        } else if (diagnostics) {
+          setDetectionMessage(
+            `Roboflow: 0 detecties | HTTP ${data?.roboflowStatus ?? '?'} | outputs ${diagnostics.outputCount ?? 0} | predictions-array: ${diagnostics.predictionsIsArray ? 'ja' : 'nee'} | predictionCount: ${diagnostics.predictionCount ?? 0}`
+          );
+        } else {
+          setDetectionMessage('Roboflow heeft geen kozijnen gevonden op deze foto.');
+        }
       } catch (error) {
         console.error('Roboflow kozijn detectie:', error);
         setKozijnDetections([]);
