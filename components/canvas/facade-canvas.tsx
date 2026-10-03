@@ -99,8 +99,10 @@ export function FacadeCanvas() {
         if (validBoxes.length) {
           setDetectionMessage(`Roboflow: ${validBoxes.length} kozijn(en) gevonden.`);
         } else if (diagnostics) {
+          const topKeys = Array.isArray(diagnostics.rawTopLevelKeys) ? diagnostics.rawTopLevelKeys.join(',') : '';
+          const nestedKeys = Array.isArray(diagnostics.nestedResultKeys) ? diagnostics.nestedResultKeys.join(',') : '';
           setDetectionMessage(
-            `Roboflow: 0 detecties | HTTP ${data?.roboflowStatus ?? '?'} | outputs ${diagnostics.outputCount ?? 0} | predictions-array: ${diagnostics.predictionsIsArray ? 'ja' : 'nee'} | predictionCount: ${diagnostics.predictionCount ?? 0}`
+            `Roboflow: 0 detecties | HTTP ${data?.roboflowStatus ?? '?'} | outputs ${diagnostics.outputCount ?? 0} | predictions-array: ${diagnostics.predictionsIsArray ? 'ja' : 'nee'} | predictionCount: ${diagnostics.predictionCount ?? 0} | top: ${topKeys || '-'} | result: ${nestedKeys || '-'}`
           );
         } else {
           setDetectionMessage('Roboflow heeft geen kozijnen gevonden op deze foto.');
