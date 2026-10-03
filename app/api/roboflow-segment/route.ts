@@ -34,9 +34,9 @@ export async function POST(request: Request) {
     const result = await response.json();
 
     const rawTopLevelKeys = result && typeof result === "object" ? Object.keys(result) : [];
-    const nestedResult = result?.result;
-    const nestedResultKeys = nestedResult && typeof nestedResult === "object" ? Object.keys(nestedResult) : [];
-    const outputList = nestedResult?.outputs;
+    const workflowResult = result?.result && typeof result.result === "object" ? result.result : result;
+    const nestedResultKeys = result?.result && typeof result.result === "object" ? Object.keys(result.result) : [];
+    const outputList = workflowResult?.outputs;
     const outputCount = Array.isArray(outputList) ? outputList.length : 0;
     const firstOutput = Array.isArray(outputList) ? outputList[0] : undefined;
     const outputKeys = firstOutput && typeof firstOutput === "object" ? Object.keys(firstOutput) : [];
@@ -69,8 +69,8 @@ export async function POST(request: Request) {
     }
 
     // Gebruik exact dezelfde response-vorm als de bewezen main-route.
-    const predictions = result?.result?.outputs?.[0]?.predictions?.predictions || [];
-    const imageInfo = result?.result?.outputs?.[0]?.predictions?.image || {};
+    const predictions = workflowResult?.outputs?.[0]?.predictions?.predictions || [];
+    const imageInfo = workflowResult?.outputs?.[0]?.predictions?.image || {};
 
     const boxes = Array.isArray(predictions)
       ? predictions
