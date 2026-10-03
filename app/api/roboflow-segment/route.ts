@@ -34,7 +34,9 @@ export async function POST(request: Request) {
     const result = await response.json();
 
     const rawTopLevelKeys = result && typeof result === "object" ? Object.keys(result) : [];
-    const outputList = result?.result?.outputs;
+    const nestedResult = result?.result;
+    const nestedResultKeys = nestedResult && typeof nestedResult === "object" ? Object.keys(nestedResult) : [];
+    const outputList = nestedResult?.outputs;
     const outputCount = Array.isArray(outputList) ? outputList.length : 0;
     const firstOutput = Array.isArray(outputList) ? outputList[0] : undefined;
     const outputKeys = firstOutput && typeof firstOutput === "object" ? Object.keys(firstOutput) : [];
@@ -54,6 +56,7 @@ export async function POST(request: Request) {
           roboflowStatus: response.status,
           diagnostics: {
             rawTopLevelKeys,
+            nestedResultKeys,
             outputCount,
             outputKeys,
             predictionContainerKeys,
@@ -111,6 +114,7 @@ export async function POST(request: Request) {
       source: "main-workflow",
       diagnostics: {
         rawTopLevelKeys,
+        nestedResultKeys,
         outputCount,
         outputKeys,
         predictionContainerKeys,
