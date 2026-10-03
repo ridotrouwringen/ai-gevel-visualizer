@@ -40,27 +40,34 @@ function colorLabel(id: SystemColor | FabricColor | undefined) {
   return color ? `${color.label} (${color.hex})` : id;
 }
 
-function productPrompt(selection: Selection) {
+function productPrompt(selection: Selection, additionalReferenceCount = 0) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
   if (selection.productType === "ROLLUIKEN") {
-    const mounting = selection.mountingMode === "IN_DE_DAG" ? "in de dag: geleiders in de negge" : "op de dag: geleiders buiten de negge op de gevel";
-    return `Create ONE isolated, complete exterior aluminum roller shutter product asset using IMAGE 1 as the physical product reference.
+    const mounting = selection.mountingMode === "IN_DE_DAG" ? "in de dag, met de geleiders in de negge" : "op de dag, met de geleiders op de gevel";
+    const referenceNote = additionalReferenceCount > 0
+      ? `Images 2 through ${additionalReferenceCount + 1} are additional real product photographs supplied by the user. Use them only to understand the roller shutter's actual cassette, side guides, closed slats, bottom rail, finish and component proportions. They are photographs of installed products: do not reproduce their walls, windows, roofs, lighting, camera framing or surroundings.`
+      : "Use IMAGE 1 as the physical product reference. Do not invent extra construction details or unsupported dimensions.";
 
-This is NOT a facade editing task and NOT a window detection task.
-Do not show a house, window, wall, glass or architecture.
-Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
+    return `Create ONE isolated, complete exterior aluminum roller shutter product asset.
 
-The product must consist of a horizontal top cassette across the full width and a fully CLOSED roller-shutter curtain with horizontal slats.
-Keep realistic component proportions based on IMAGE 1: the top cassette should be compact and approximately 11% of the complete product height (representing a typical cassette of about 16 cm on a normal window). The closed slat curtain should occupy the remaining approximately 89% of the product height. The bottom rail (onderlijst) must be slim: its height must be exactly equal to the width of one side guide (zijgeleider), not thicker or taller. Keep the slats narrow, evenly spaced, and consistent with the physical reference.
-The four outer product edges must be straight and parallel.
-Do not tilt, rotate, skew or perspective-distort the product.
+IMAGE 1 is the existing isolated roller-shutter product reference. ${referenceNote}
+This is NOT a facade editing task and NOT a window detection task. Do not show a house, window, wall, glass or architecture.
+Generate one complete product straight-on, front-facing and axis-aligned, with straight parallel outer edges.
+
+The product must have these four connected, recognizable components:
+- one compact horizontal roller cassette (rolbak) across the top;
+- one narrow vertical side guide (zijgeleider) on each side;
+- one fully CLOSED curtain (pantser) made of consistent horizontal slats, with no visible gap or exposed glass;
+- one clear, slim bottom rail (onderlijst) joining the two guides.
+
+Match the shape, finish and relative proportions visible in the supplied real product photographs. Do not impose guessed measurements or arbitrary percentages. Keep the cassette visually compact, both guides consistent in width, slats evenly spaced, and the bottom rail proportionate to the guides. The product must read as one technically coherent roller shutter, not a generic flat panel.
+Mounting context for the requested product: ${mounting}. Treat this as a construction cue only; keep the output isolated.
 The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
 System color: ${systemColor}.
 
-Use IMAGE 1 only to copy the real product construction and appearance. Do not copy its background or scene.
-The final asset must be a single complete rolluik, not multiple products.`;
+Use the photographs to reproduce the real product construction and appearance, not their surroundings. The final asset must be one single, complete, fully closed roller shutter, not multiple products.`;
   }
 
   if (selection.productType === "ZIPSCREENS") {
@@ -219,14 +226,15 @@ async function loadProductReference(productType: ProductType) {
 }
 
 async function runProductEdit(
-  productReference: Buffer,
+  productReferences: Buffer[],
   prompt: string,
   apiKey: string
 ) {
   const replicate = new Replicate({ auth: apiKey });
 
   console.log("Nano Banana starten", {
-    referenceBytes: productReference.length,
+    referenceBytes: productReferences.map((reference) => reference.length),
+    referenceCount: productReferences.length,
     prompt,
   });
 
@@ -234,7 +242,7 @@ async function runProductEdit(
     const output = await replicate.run("google/nano-banana", {
       input: {
         prompt,
-        image_input: [productReference],
+        image_input: productReferences,
         aspect_ratio: "match_input_image",
         output_format: "png",
       },
@@ -446,6 +454,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const image = body?.image;
     const selections = body?.selections as Selection[] | undefined;
+    const productReferenceImages = body?.productReferenceImages;
 
     if (typeof image !== "string" || !Array.isArray(selections) || selections.length === 0) {
       return NextResponse.json(
@@ -461,6 +470,25 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+
+    if (productReferenceImages !== undefined && (
+      !Array.isArray(productReferenceImages) ||
+      productReferenceImages.length > 3 ||
+      productReferenceImages.some((value) =>
+        typeof value !== "string" ||
+        !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) ||
+        value.length > 700_000
+      )
+    )) {
+      return NextResponse.json(
+        { error: "Voeg maximaal 3 productreferenties toe (JPEG, PNG of WebP, maximaal 500 KB per foto)." },
+        { status: 400 }
+      );
+    }
+
+    const extraRolluikReferences = Array.isArray(productReferenceImages)
+      ? productReferenceImages.map(dataUriToBuffer)
+      : [];
 
     const validationError = generationInputError(image, selections);
     const validSelections = selections.filter((selection): selection is Selection => {
@@ -517,9 +545,14 @@ export async function POST(req: Request) {
       preparedSelections,
       GENERATION_CONCURRENCY,
       async (prepared, index) => {
-        const generatedUrl = await runProductEdit(
+        const isRolluik = prepared.selection.productType === "ROLLUIKEN";
+        const referenceBuffers = [
           prepared.referenceBuffer,
-          productPrompt(prepared.selection),
+          ...(isRolluik ? extraRolluikReferences : []),
+        ];
+        const generatedUrl = await runProductEdit(
+          referenceBuffers,
+          productPrompt(prepared.selection, isRolluik ? extraRolluikReferences.length : 0),
           apiKey
         );
 
