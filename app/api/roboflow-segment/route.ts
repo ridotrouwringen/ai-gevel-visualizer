@@ -33,9 +33,34 @@ export async function POST(request: Request) {
 
     const result = await response.json();
 
+    const rawTopLevelKeys = result && typeof result === "object" ? Object.keys(result) : [];
+    const outputList = result?.result?.outputs;
+    const outputCount = Array.isArray(outputList) ? outputList.length : 0;
+    const firstOutput = Array.isArray(outputList) ? outputList[0] : undefined;
+    const outputKeys = firstOutput && typeof firstOutput === "object" ? Object.keys(firstOutput) : [];
+    const predictionContainer = firstOutput?.predictions;
+    const predictionContainerKeys =
+      predictionContainer && typeof predictionContainer === "object"
+        ? Object.keys(predictionContainer)
+        : [];
+    const rawPredictions = predictionContainer?.predictions;
+    const predictionsIsArray = Array.isArray(rawPredictions);
+    const predictionCount = predictionsIsArray ? rawPredictions.length : 0;
+
     if (!response.ok) {
       return NextResponse.json(
-        { error: result?.error || result?.message || `Roboflow gaf HTTP ${response.status} terug.` },
+        {
+          error: result?.error || result?.message || `Roboflow gaf HTTP ${response.status} terug.`,
+          roboflowStatus: response.status,
+          diagnostics: {
+            rawTopLevelKeys,
+            outputCount,
+            outputKeys,
+            predictionContainerKeys,
+            predictionsIsArray,
+            predictionCount,
+          },
+        },
         { status: response.status }
       );
     }
@@ -84,6 +109,23 @@ export async function POST(request: Request) {
       roboflowStatus: response.status,
       segmentationType: "bounding-box",
       source: "main-workflow",
+      diagnostics: {
+        rawTopLevelKeys,
+        outputCount,
+        outputKeys,
+        predictionContainerKeys,
+        predictionsIsArray,
+        predictionCount,
+        imageInfo,
+        samplePrediction: predictionsIsArray && rawPredictions[0] ? {
+          x: rawPredictions[0].x,
+          y: rawPredictions[0].y,
+          width: rawPredictions[0].width,
+          height: rawPredictions[0].height,
+          confidence: rawPredictions[0].confidence,
+          class: rawPredictions[0].class,
+        } : null,
+      },
       message: boxes.length
         ? `Roboflow: ${boxes.length} kozijn(en) gevonden.`
         : "Roboflow gaf 0 kozijnen terug.",
