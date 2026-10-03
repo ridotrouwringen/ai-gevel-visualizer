@@ -193,8 +193,8 @@ export function FacadeCanvas() {
         ctx.beginPath();
         ctx.moveTo(last.x * canvas.width, last.y * canvas.height);
         ctx.lineTo(polygonPreviewPoint.x * canvas.width, polygonPreviewPoint.y * canvas.height);
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#39FF14';
+        ctx.lineWidth = 3;
         ctx.setLineDash([5, 5]);
         ctx.stroke();
         ctx.setLineDash([]);
