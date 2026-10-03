@@ -85,10 +85,10 @@ export function FacadeCanvas() {
           throw new Error(data?.error || 'Roboflow detectie mislukt.');
         }
 
-        const predictions =
-          data?.result?.outputs?.[0]?.predictions?.predictions || [];
-
-        setKozijnDetections(predictions.map((p:any) => ({ x:p.cx * (data.imageWidth || 1), y:p.cy * (data.imageHeight || 1), width:p.w * (data.imageWidth || 1), height:p.h * (data.imageHeight || 1), confidence:p.confidence || 0 })));
+        setKozijnDetections((data?.boxes || []).map((p: any) => ({
+          x: p.x, y: p.y, width: p.width, height: p.height,
+          confidence: p.confidence || 0
+        })));
         setKozijnMasks(data?.selectedMasks || []);
       } catch (error) {
         console.error('Roboflow kozijn detectie:', error);
@@ -117,26 +117,25 @@ export function FacadeCanvas() {
     const imageWidth = imgRef.current?.naturalWidth || canvas.width;
     const imageHeight = imgRef.current?.naturalHeight || canvas.height;
 
-    // De bounding boxes zijn alleen intern nodig als startpunt voor SAM3.
-    // Toon ze bewust niet: bij een schuin gefotografeerd kozijn zou een
-    // rechthoekige overlay de gebruiker de verkeerde geometrie laten zien.
-
-    // Exacte kozijnsegmentatie: Roboflow levert de kandidaten, SAM3 levert de pixelcontour.
-    kozijnMasks.forEach((mask, index) => {
-      const imageWidth = imgRef.current?.naturalWidth || canvas.width;
-      const imageHeight = imgRef.current?.naturalHeight || canvas.height;
+    // Toon uitsluitend de door Roboflow gevonden kozijnkaders.
+    // De detectiecoördinaten zijn middelpunt + breedte/hoogte in originele pixels.
+    kozijnDetections.forEach((detection, index) => {
       const sx = canvas.width / imageWidth;
       const sy = canvas.height / imageHeight;
+      const left = (detection.x - detection.width / 2) * sx;
+      const top = (detection.y - detection.height / 2) * sy;
+      const width = detection.width * sx;
+      const height = detection.height * sy;
       ctx.save();
-      ctx.fillStyle = 'rgba(34,197,94,0.22)';
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 2;
-      for (let y=0; y<mask.height; y++) {
-        for (let x=0; x<mask.width; x++) {
-          if ((mask.data[y*mask.width+x] || 0) <= 0) continue;
-          ctx.fillRect((mask.offsetX+x)*sx, (mask.offsetY+y)*sy, Math.max(1,sx), Math.max(1,sy));
-        }
-      }
+      ctx.strokeStyle = '#16a34a';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+      ctx.strokeRect(left, top, width, height);
+      ctx.fillStyle = '#16a34a';
+      ctx.font = 'bold 14px Arial';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`Roboflow ${index + 1}`, left + 3, Math.max(14, top - 3));
       ctx.restore();
     });
 
@@ -346,8 +345,7 @@ export function FacadeCanvas() {
 
     const MIN_DRAG_SIZE = 0.01;
 
-    // Een korte klik op een gesegmenteerd kozijn selecteert exact het
-    // door SAM3 teruggegeven pixelmasker. Een rechthoek wordt dus niet gebruikt.
+    // Een korte klik op een door Roboflow gevonden kozijn selecteert het bijbehorende detectiekader.
     if (Math.max(width, height) < MIN_DRAG_SIZE && activeProduct !== 'KNIKARMSCHERMEN') {
       const imageWidth = imgRef.current?.naturalWidth;
       const imageHeight = imgRef.current?.naturalHeight;
@@ -534,7 +532,7 @@ export function FacadeCanvas() {
         {segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
           ? "Sleep over de gewenste breedte van het knikarmscherm."
           : kozijnDetections.length > 0
-            ? "Klik op een groen kozijn om het automatisch te selecteren, of sleep handmatig."
+            ? "Groene kaders tonen de Roboflow-detecties; klik op een kader of sleep handmatig."
             : "Sleep exact over het gebied waar het product moet komen."
         }
       </div>
