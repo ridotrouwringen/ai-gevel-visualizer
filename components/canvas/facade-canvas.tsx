@@ -46,6 +46,7 @@ export function FacadeCanvas() {
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
   const [dragCurrent, setDragCurrent] = useState<{ x: number, y: number } | null>(null);
   const [polygonPoints, setPolygonPoints] = useState<{ x: number, y: number }[]>([]);
+  const [polygonPreviewPoint, setPolygonPreviewPoint] = useState<{ x: number, y: number } | null>(null);
   const [segmentError, setSegmentError] = useState<string | null>(null);
   // Debug view: this is the exact raster mask stored in Zustand and sent
   // unchanged to /api/replicate as selection.rasterMasks.
@@ -182,8 +183,35 @@ export function FacadeCanvas() {
       if (polygonPoints.length === 4) ctx.closePath();
       ctx.stroke();
       if (polygonPoints.length === 4) ctx.fill();
-      ctx.setLineDash([]);
-      polygonPoints.forEach((point, index) => {
+
+      // Live guide: after each corner click, show exactly where the next
+      // straight edge will be drawn. After 4 points, show the closing edge
+      // back to point 1 so perspective alignment can be checked before
+      // committing the mask.
+      if (polygonPreviewPoint && polygonPoints.length < 4) {
+        const last = polygonPoints[polygonPoints.length - 1];
+        ctx.beginPath();
+        ctx.moveTo(last.x * canvas.width, last.y * canvas.height);
+        ctx.lineTo(polygonPreviewPoint.x * canvas.width, polygonPreviewPoint.y * canvas.height);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (polygonPoints.length === 4) {
+        const first = polygonPoints[0];
+        const last = polygonPoints[3];
+        ctx.beginPath();
+        ctx.moveTo(last.x * canvas.width, last.y * canvas.height);
+        ctx.lineTo(first.x * canvas.width, first.y * canvas.height);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      polygonPoints.forEach((point, index) {
         const x = point.x * canvas.width;
         const y = point.y * canvas.height;
         ctx.beginPath();
@@ -234,7 +262,7 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, polygonPoints, dragStart, dragCurrent, originalImage, showGenerationMask, mountingMode]);
+  }, [masks, polygonPoints, polygonPreviewPoint, dragStart, dragCurrent, originalImage, showGenerationMask, mountingMode]);
 
   // The drag rectangle is the complete and authoritative generation mask for
   // Rolluiken and screens use only the exact four-point user selection.
@@ -297,6 +325,7 @@ export function FacadeCanvas() {
     }
 
     const nextPoints = [...polygonPoints, position];
+    setPolygonPreviewPoint(null);
     if (nextPoints.length < 4) {
       setPolygonPoints(nextPoints);
       return;
@@ -325,10 +354,18 @@ export function FacadeCanvas() {
   };
 
   const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
-    if (activeProduct !== 'KNIKARMSCHERMEN' || !dragStart) return;
     const position = getPointerPosition(e);
     if (!position) return;
-    setDragCurrent(position);
+
+    if (activeProduct === 'KNIKARMSCHERMEN') {
+      if (!dragStart) return;
+      setDragCurrent(position);
+      return;
+    }
+
+    if (polygonPoints.length > 0 && polygonPoints.length < 4) {
+      setPolygonPreviewPoint(position);
+    }
   };
 
   const handlePointerUp = async (e: PointerEvent<HTMLCanvasElement>) => {
@@ -364,6 +401,7 @@ export function FacadeCanvas() {
 
   const resetPolygonSelection = () => {
     setPolygonPoints([]);
+    setPolygonPreviewPoint(null);
     setSegmentError(null);
   };
 
