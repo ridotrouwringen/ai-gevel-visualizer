@@ -46,6 +46,7 @@ export function FacadeCanvas() {
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
   const [dragCurrent, setDragCurrent] = useState<{ x: number, y: number } | null>(null);
   const [segmentError, setSegmentError] = useState<string | null>(null);
+  const [detectionMessage, setDetectionMessage] = useState<string | null>(null);
   // Debug view: this is the exact raster mask stored in Zustand and sent
   // unchanged to /api/replicate as selection.rasterMasks.
   const [showGenerationMask, setShowGenerationMask] = useState(true);
@@ -59,6 +60,8 @@ export function FacadeCanvas() {
     if (!file) return;
     setKozijnDetections([]);
     setKozijnMasks([]);
+    setSegmentError(null);
+    setDetectionMessage('Foto wordt naar Roboflow gestuurd…');
     setIsDetectingKozijnen(true);
 
     const reader = new FileReader();
@@ -85,14 +88,19 @@ export function FacadeCanvas() {
           throw new Error(data?.error || 'Roboflow detectie mislukt.');
         }
 
-        setKozijnDetections((data?.boxes || []).map((p: any) => ({
-          x: p.x, y: p.y, width: p.width, height: p.height,
-          confidence: p.confidence || 0
-        })));
-        setKozijnMasks(data?.selectedMasks || []);
+        const boxes = Array.isArray(data?.boxes) ? data.boxes : [];
+        const validBoxes = boxes.map((p: any) => ({
+          x: Number(p.x), y: Number(p.y), width: Number(p.width), height: Number(p.height),
+          confidence: Number(p.confidence) || 0
+        })).filter((p: any) => [p.x, p.y, p.width, p.height].every(Number.isFinite) && p.width > 0 && p.height > 0);
+        setKozijnDetections(validBoxes);
+        setKozijnMasks(Array.isArray(data?.selectedMasks) ? data.selectedMasks : []);
+        setDetectionMessage(validBoxes.length ? `Roboflow: ${validBoxes.length} kozijn(en) gevonden.` : 'Roboflow heeft geen kozijnen gevonden op deze foto.');
       } catch (error) {
         console.error('Roboflow kozijn detectie:', error);
         setKozijnDetections([]);
+        setKozijnMasks([]);
+        setDetectionMessage(error instanceof Error ? `Roboflow-fout: ${error.message}` : 'Roboflow-detectie mislukt.');
       } finally {
         setIsDetectingKozijnen(false);
       }
@@ -127,15 +135,17 @@ export function FacadeCanvas() {
       const width = detection.width * sx;
       const height = detection.height * sy;
       ctx.save();
-      ctx.strokeStyle = '#16a34a';
-      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#00e676';
+      ctx.lineWidth = Math.max(3, canvas.width / 300);
+      ctx.shadowColor = '#003b1c';
+      ctx.shadowBlur = 4;
       ctx.setLineDash([]);
       ctx.strokeRect(left, top, width, height);
       ctx.fillStyle = '#16a34a';
       ctx.font = 'bold 14px Arial';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(`Roboflow ${index + 1}`, left + 3, Math.max(14, top - 3));
+      ctx.fillText(`Kozijn ${index + 1}`, Math.max(3, left + 3), Math.max(16, top - 3));
       ctx.restore();
     });
 
@@ -515,9 +525,9 @@ export function FacadeCanvas() {
           <button type="button" onClick={() => setMountingMode('OP_DE_DAG')} className={`px-3 py-1.5 rounded text-xs font-medium ${mountingMode === 'OP_DE_DAG' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>Op de dag</button>
         </div>
       )}
-      {isDetectingKozijnen && (
-        <div className="absolute top-16 left-4 z-20 bg-green-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
-          Kozijnen zoeken...
+      {(isDetectingKozijnen || detectionMessage) && (
+        <div className={`absolute top-16 left-4 z-20 px-4 py-2 rounded-md text-xs shadow-lg font-semibold max-w-[80%] ${isDetectingKozijnen || kozijnDetections.length ? 'bg-green-700/95 text-white' : 'bg-amber-600/95 text-white'}`}>
+          {isDetectingKozijnen ? 'Kozijnen zoeken met Roboflow…' : detectionMessage}
         </div>
       )}
 
@@ -533,7 +543,7 @@ export function FacadeCanvas() {
           ? "Sleep over de gewenste breedte van het knikarmscherm."
           : kozijnDetections.length > 0
             ? "Groene kaders tonen de Roboflow-detecties; klik op een kader of sleep handmatig."
-            : "Sleep exact over het gebied waar het product moet komen."
+            : detectionMessage || "Sleep exact over het gebied waar het product moet komen."
         }
       </div>
 
