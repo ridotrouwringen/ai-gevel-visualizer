@@ -211,7 +211,7 @@ export function FacadeCanvas() {
         ctx.setLineDash([]);
       }
 
-      polygonPoints.forEach((point, index) {
+      polygonPoints.forEach((point, index) => {
         const x = point.x * canvas.width;
         const y = point.y * canvas.height;
         ctx.beginPath();
