@@ -232,9 +232,18 @@ async function runProductEdit(
 ) {
   const replicate = new Replicate({ auth: apiKey });
 
+  // Replicate's image_input expects image URLs or base64 data URIs,
+  // not raw Node.js Buffers. Normalize every reference to PNG data URI.
+  const referenceDataUris = await Promise.all(
+    productReferences.map(async (reference) =>
+      bufferToDataUri(await sharp(reference).png().toBuffer(), "image/png")
+    )
+  );
+
   console.log("Nano Banana starten", {
     referenceBytes: productReferences.map((reference) => reference.length),
-    referenceCount: productReferences.length,
+    referenceCount: referenceDataUris.length,
+    referenceFormats: referenceDataUris.map((reference) => reference.slice(0, 22)),
     prompt,
   });
 
@@ -242,7 +251,7 @@ async function runProductEdit(
     const output = await replicate.run("google/nano-banana", {
       input: {
         prompt,
-        image_input: productReferences,
+        image_input: referenceDataUris,
         aspect_ratio: "match_input_image",
         output_format: "png",
       },
