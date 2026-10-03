@@ -3,6 +3,9 @@ import Replicate from "replicate";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
+import { compositeGeneratedProduct } from "@/lib/image-composite";
+import { buildLineMask, buildRasterMask, getSelectionBounds } from "@/lib/masks";
+import { generationInputError } from "@/lib/replicate-validation";
 import {
   SYSTEM_COLORS,
   ZIPSCREEN_FABRICS,
@@ -16,16 +19,15 @@ import {
 export const maxDuration = 120;
 const GENERATION_CONCURRENCY = 1;
 
-type RasterMask = NonNullable<MaskShape["rasterMasks"]>[number];
 type Selection = Pick<
   MaskShape,
-  "id" | "sequenceNumber" | "type" | "coordinates" | "rasterMasks" | "productType" | "systemColor" | "fabricColor"
+  "id" | "sequenceNumber" | "type" | "coordinates" | "rasterMasks" | "productType" | "systemColor" | "fabricColor" | "mountingMode"
 >;
 
 function dataUriToBuffer(dataUri: string) {
-  const match = dataUri.match(/^data:[^;]+;base64,(.+)$/s);
-  if (!match) throw new Error("De afbeelding moet een base64 data-URI zijn.");
-  return Buffer.from(match[1], "base64");
+  const commaIndex = dataUri.indexOf(",");
+  if (commaIndex < 0) throw new Error("De afbeelding moet een base64 data-URI zijn.");
+  return Buffer.from(dataUri.slice(commaIndex + 1), "base64");
 }
 
 function bufferToDataUri(buffer: Buffer, mime = "image/png") {
@@ -38,26 +40,34 @@ function colorLabel(id: SystemColor | FabricColor | undefined) {
   return color ? `${color.label} (${color.hex})` : id;
 }
 
-function productPrompt(selection: Selection) {
+function productPrompt(selection: Selection, additionalReferenceCount = 0) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
   if (selection.productType === "ROLLUIKEN") {
-    return `Create ONE isolated, complete exterior aluminum roller shutter product asset using IMAGE 1 as the physical product reference.
+    const mounting = selection.mountingMode === "IN_DE_DAG" ? "in de dag, met de geleiders in de negge" : "op de dag, met de geleiders op de gevel";
+    const referenceNote = additionalReferenceCount > 0
+      ? `Images 2 through ${additionalReferenceCount + 1} are additional real product photographs supplied by the user. Use them only to understand the roller shutter's actual cassette, side guides, closed slats, bottom rail, finish and component proportions. They are photographs of installed products: do not reproduce their walls, windows, roofs, lighting, camera framing or surroundings.`
+      : "Use IMAGE 1 as the physical product reference. Do not invent extra construction details or unsupported dimensions.";
 
-This is NOT a facade editing task and NOT a window detection task.
-Do not show a house, window, wall, glass or architecture.
-Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
+    return `Create ONE isolated, complete exterior aluminum roller shutter product asset.
 
-The product must consist of a horizontal top cassette across the full width and a fully CLOSED roller-shutter curtain with horizontal slats.
-Keep realistic component proportions based on IMAGE 1: the top cassette should be compact and approximately 11% of the complete product height (representing a typical cassette of about 16 cm on a normal window). The closed slat curtain should occupy the remaining approximately 89% of the product height. The bottom rail (onderlijst) must be slim: its height must be exactly equal to the width of one side guide (zijgeleider), not thicker or taller. Keep the slats narrow, evenly spaced, and consistent with the physical reference.
-The four outer product edges must be straight and parallel.
-Do not tilt, rotate, skew or perspective-distort the product.
+IMAGE 1 is the existing isolated roller-shutter product reference. ${referenceNote}
+This is NOT a facade editing task and NOT a window detection task. Do not show a house, window, wall, glass or architecture.
+Generate one complete product straight-on, front-facing and axis-aligned, with straight parallel outer edges.
+
+The product must have these four connected, recognizable components:
+- one compact horizontal roller cassette (rolbak) across the top;
+- one narrow vertical side guide (zijgeleider) on each side;
+- one fully CLOSED curtain (pantser) made of consistent horizontal slats, with no visible gap or exposed glass;
+- one clear, slim bottom rail (onderlijst) joining the two guides.
+
+Match the shape, finish and relative proportions visible in the supplied real product photographs. Do not impose guessed measurements or arbitrary percentages. Keep the cassette visually compact, both guides consistent in width, slats evenly spaced, and the bottom rail proportionate to the guides. The product must read as one technically coherent roller shutter, not a generic flat panel.
+Mounting context for the requested product: ${mounting}. Treat this as a construction cue only; keep the output isolated.
 The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
 System color: ${systemColor}.
 
-Use IMAGE 1 only to copy the real product construction and appearance. Do not copy its background or scene.
-The final asset must be a single complete rolluik, not multiple products.`;
+Use the photographs to reproduce the real product construction and appearance, not their surroundings. The final asset must be one single, complete, fully closed roller shutter, not multiple products.`;
   }
 
   if (selection.productType === "ZIPSCREENS") {
@@ -90,39 +100,6 @@ Use IMAGE 1 only to copy the real product construction, proportions and appearan
 The final asset must be a single complete awning on a pure-white background.`;
 }
 
-function buildLineMask(width: number, height: number, coordinates: { x: number; y: number }[]) {
-  const start = coordinates[0], end = coordinates[1];
-  const left = Math.max(0, Math.min(start.x, end.x));
-  const right = Math.min(1, Math.max(start.x, end.x));
-  const top = Math.max(0, Math.min(start.y, end.y));
-  const bottom = Math.min(1, top + 0.20);
-  const x0 = Math.floor(left * width), x1 = Math.ceil(right * width);
-  const y0 = Math.floor(top * height), y1 = Math.ceil(bottom * height);
-  const data = Buffer.alloc(width * height);
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) data[y * width + x] = 255;
-  }
-  return data;
-}
-
-function buildRasterMask(width: number, height: number, masks: RasterMask[]) {
-  const data = Buffer.alloc(width * height);
-  for (const mask of masks) {
-    for (let y = 0; y < mask.height; y++) {
-      const targetY = mask.offsetY + y;
-      if (targetY < 0 || targetY >= height) continue;
-      for (let x = 0; x < mask.width; x++) {
-        const targetX = mask.offsetX + x;
-        if (targetX < 0 || targetX >= width) continue;
-        if (Number(mask.data[y * mask.width + x] ?? 0) > 0) {
-          data[targetY * width + targetX] = 255;
-        }
-      }
-    }
-  }
-  return data;
-}
-
 async function makeMask(width: number, height: number, selection: Selection) {
   const raw =
     selection.type === "LINE"
@@ -134,31 +111,6 @@ async function makeMask(width: number, height: number, selection: Selection) {
   }).png().toBuffer();
 
   return { raw, png };
-}
-
-function getSelectionBounds(maskRaw: Buffer, width: number, height: number) {
-  let left = width;
-  let top = height;
-  let right = -1;
-  let bottom = -1;
-
-  for (let y = 0; y < height; y++) {
-    const rowOffset = y * width;
-    for (let x = 0; x < width; x++) {
-      if (maskRaw[rowOffset + x] > 0) {
-        if (x < left) left = x;
-        if (x > right) right = x;
-        if (y < top) top = y;
-        if (y > bottom) bottom = y;
-      }
-    }
-  }
-
-  if (right < left || bottom < top) {
-    throw new Error("De geselecteerde mask bevat geen actieve pixels.");
-  }
-
-  return { left, top, right: right + 1, bottom: bottom + 1 };
 }
 
 async function makeGeometryGuide(
@@ -274,14 +226,24 @@ async function loadProductReference(productType: ProductType) {
 }
 
 async function runProductEdit(
-  productReference: Buffer,
+  productReferences: Buffer[],
   prompt: string,
   apiKey: string
 ) {
   const replicate = new Replicate({ auth: apiKey });
 
+  // Replicate's image_input expects image URLs or base64 data URIs,
+  // not raw Node.js Buffers. Normalize every reference to PNG data URI.
+  const referenceDataUris = await Promise.all(
+    productReferences.map(async (reference) =>
+      bufferToDataUri(await sharp(reference).png().toBuffer(), "image/png")
+    )
+  );
+
   console.log("Nano Banana starten", {
-    referenceBytes: productReference.length,
+    referenceBytes: productReferences.map((reference) => reference.length),
+    referenceCount: referenceDataUris.length,
+    referenceFormats: referenceDataUris.map((reference) => reference.slice(0, 22)),
     prompt,
   });
 
@@ -289,7 +251,7 @@ async function runProductEdit(
     const output = await replicate.run("google/nano-banana", {
       input: {
         prompt,
-        image_input: [productReference],
+        image_input: referenceDataUris,
         aspect_ratio: "match_input_image",
         output_format: "png",
       },
@@ -501,6 +463,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const image = body?.image;
     const selections = body?.selections as Selection[] | undefined;
+    const productReferenceImages = body?.productReferenceImages;
 
     if (typeof image !== "string" || !Array.isArray(selections) || selections.length === 0) {
       return NextResponse.json(
@@ -517,17 +480,34 @@ export async function POST(req: Request) {
       );
     }
 
-    const invalid = selections.find((selection) => {
-      if (!selection.productType || !selection.systemColor) return true;
-      if (selection.type === "LINE") return selection.coordinates?.length !== 2;
-      return !Array.isArray(selection.rasterMasks) || selection.rasterMasks.length === 0;
-    });
-
-    if (invalid) {
+    if (productReferenceImages !== undefined && (
+      !Array.isArray(productReferenceImages) ||
+      productReferenceImages.length > 3 ||
+      productReferenceImages.some((value) =>
+        typeof value !== "string" ||
+        !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) ||
+        value.length > 700_000
+      )
+    )) {
       return NextResponse.json(
-        { error: "Een of meer selecties bevatten geen geldige montagegeometrie." },
+        { error: "Voeg maximaal 3 productreferenties toe (JPEG, PNG of WebP, maximaal 500 KB per foto)." },
         { status: 400 }
       );
+    }
+
+    const extraRolluikReferences = Array.isArray(productReferenceImages)
+      ? productReferenceImages.map(dataUriToBuffer)
+      : [];
+
+    const validationError = generationInputError(image, selections);
+    const validSelections = selections.filter((selection): selection is Selection => {
+      if (!selection || !selection.productType || !selection.systemColor) return false;
+      if (selection.type === "LINE") return selection.coordinates?.length === 2;
+      return Array.isArray(selection.rasterMasks) && selection.rasterMasks.length > 0;
+    });
+
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
     const originalBuffer = dataUriToBuffer(image);
@@ -553,14 +533,14 @@ export async function POST(req: Request) {
     });
 
     const preparedSelections = await Promise.all(
-      selections.map((selection) =>
+      validSelections.map((selection) =>
         prepareSelection(originalBuffer, width, height, selection)
       )
     );
 
     // Detect a possible foreground lamp in parallel with product generation.
     // If detection fails, keep the existing composite unchanged.
-    const hasRollerShutter = selections.some((selection) => selection.productType === "ROLLUIKEN");
+    const hasRollerShutter = validSelections.some((selection) => selection.productType === "ROLLUIKEN");
     const foregroundMaskPromise = hasRollerShutter
       ? detectForegroundLamp(image, apiKey, width, height).catch((error) => {
           console.warn("Voorgrondherkenning overgeslagen:", error);
@@ -574,9 +554,14 @@ export async function POST(req: Request) {
       preparedSelections,
       GENERATION_CONCURRENCY,
       async (prepared, index) => {
-        const generatedUrl = await runProductEdit(
+        const isRolluik = prepared.selection.productType === "ROLLUIKEN";
+        const referenceBuffers = [
           prepared.referenceBuffer,
-          productPrompt(prepared.selection),
+          ...(isRolluik ? extraRolluikReferences : []),
+        ];
+        const generatedUrl = await runProductEdit(
+          referenceBuffers,
+          productPrompt(prepared.selection, isRolluik ? extraRolluikReferences.length : 0),
           apiKey
         );
 
@@ -712,30 +697,23 @@ export async function POST(req: Request) {
         combinedAlpha[i] = Math.round((alpha[i] * localMaskRaw[i]) / 255);
       }
 
-      const finalOverlay = await sharp(resized.data, {
+      const rgbProduct = await sharp(resized.data, {
         raw: {
           width: resized.info.width,
           height: resized.info.height,
           channels: 3,
         },
-      })
-        .joinChannel(combinedAlpha, {
-          raw: { width: localWidth, height: localHeight, channels: 1 },
-        })
-        .png()
-        .toBuffer();
+      }).raw().toBuffer();
 
-      currentBuffer = await sharp(currentBuffer)
-        .composite([
-          {
-            input: finalOverlay,
-            left: item.bounds.left,
-            top: item.bounds.top,
-            blend: "over",
-          },
-        ])
-        .png()
-        .toBuffer();
+      currentBuffer = await compositeGeneratedProduct(
+        currentBuffer,
+        rgbProduct,
+        combinedAlpha,
+        localWidth,
+        localHeight,
+        item.bounds.left,
+        item.bounds.top
+      );
     }
 
     // Restore original pixels of detected foreground objects only where they
@@ -779,7 +757,7 @@ export async function POST(req: Request) {
       success: true,
       imageUrl: bufferToDataUri(currentBuffer, "image/png"),
       model: "google/nano-banana",
-      selectionCount: selections.length,
+      selectionCount: validSelections.length,
       results,
       message: "Product gegenereerd als geïsoleerde asset en exact in de selectie geplaatst.",
     });

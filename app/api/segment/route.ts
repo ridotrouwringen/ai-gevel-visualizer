@@ -26,7 +26,7 @@ type MaskCutout = {
   channels?: number;
 };
 
-function isNumberArray(value: unknown, length: number) {
+function isNumberArray(value: unknown, length: number): value is number[] {
   return (
     Array.isArray(value) &&
     value.length >= length &&
@@ -37,7 +37,7 @@ function isNumberArray(value: unknown, length: number) {
 function toBox(candidate: unknown): Box | null {
   if (!isNumberArray(candidate, 4)) return null;
 
-  const [a, b, c, d] = candidate.slice(0, 4) as number[];
+  const [a, b, c, d] = candidate.slice(0, 4) as [number, number, number, number];
 
   // SAM3 uses normalized center_x, center_y, width, height for boxes.
   if (
@@ -898,7 +898,7 @@ function buildMaskKozijnGroup(
   };
 }
 
-function buildKozijnGroup(detections: Detection[], point: Point) {
+function buildKozijnGroup(detections: Detection[], point: Point): { box: { left: number; top: number; right: number; bottom: number }; polygon: Point2D[]; memberCount: number; memberBoxes: Box[]; clickedIndex: number; selectedMasks?: MaskCutout[] } | null {
   const boxes = detections.map((d) => d.box);
   if (!boxes.length) return null;
 

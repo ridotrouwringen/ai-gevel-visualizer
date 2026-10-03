@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { ProductSelector } from '@/components/configurator/product-selector';
 import { FacadeCanvas } from '@/components/canvas/facade-canvas';
 import { useVisualizerStore } from '@/store/visualizer-store';
@@ -10,6 +10,48 @@ import { Loader2, RotateCcw } from 'lucide-react';
 export default function Home() {
   const { originalImage, generatedImage, setGeneratedImage, masks, setOriginalImage, clearMasks } = useVisualizerStore();
   const [isGenerating, setIsGenerating] = useState(false);
+  const referenceInputRef = useRef<HTMLInputElement>(null);
+  const [productReferenceFiles, setProductReferenceFiles] = useState<{ name: string; dataUrl: string }[]>([]);
+
+  const handleProductReferenceUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (files.length === 0) return;
+    if (files.length > 3) {
+      toast.error("Selecteer maximaal 3 productreferenties.");
+      return;
+    }
+    const unsupported = files.find((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type));
+    if (unsupported) {
+      toast.error("Gebruik alleen JPEG-, PNG- of WebP-afbeeldingen.");
+      return;
+    }
+    const oversized = files.find((file) => file.size > 500_000);
+    if (oversized) {
+      toast.error("Elke productreferentie mag maximaal 500 KB zijn.");
+      return;
+    }
+
+    const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("Een productreferentie kon niet worden gelezen."));
+      reader.onerror = () => reject(new Error("Een productreferentie kon niet worden gelezen."));
+      reader.readAsDataURL(file);
+    });
+
+    try {
+      const loaded = await Promise.all(files.map(async (file) => ({
+        name: file.name,
+        dataUrl: await readAsDataUrl(file),
+      })));
+      setProductReferenceFiles(loaded);
+      toast.success(`${loaded.length} productreferentie(s) toegevoegd aan de rolluiktest.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Productreferenties konden niet worden gelezen.");
+    }
+  };
 
   const handleGenerate = async () => {
     if (!originalImage) {
@@ -27,6 +69,9 @@ export default function Home() {
 
     const payload = {
       image: originalImage,
+      productReferenceImages: masks.some((mask) => mask.productType === "ROLLUIKEN")
+        ? productReferenceFiles.map((file) => file.dataUrl)
+        : [],
       selections: masks.map(mask => ({
         id: mask.id,
         productType: mask.productType,
@@ -80,9 +125,40 @@ export default function Home() {
       <section className="flex-1 h-full relative flex flex-col">
         
         <header className="h-16 bg-white border-b border-gray-200 flex items-center px-6 justify-between flex-shrink-0 z-10">
-          <h1 className="text-xl font-bold text-gray-800">AI-Zonwering Visualizer</h1>
-          
+          <div className="flex flex-col min-w-0">
+            <h1 className="text-xl font-bold text-gray-800">AI-Zonwering Visualizer</h1>
+            <span className="text-xs text-gray-500">Rolluiktest: optioneel echte productfoto's uit Bibliotheek /rolluiken toevoegen</span>
+          </div>
+
           <div className="flex items-center gap-3">
+            <input
+              ref={referenceInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={handleProductReferenceUpload}
+              className="hidden"
+              aria-label="Productreferentiefoto's selecteren"
+            />
+            <button
+              type="button"
+              onClick={() => referenceInputRef.current?.click()}
+              disabled={isGenerating}
+              title={productReferenceFiles.map((file) => file.name).join(", ") || "Selecteer maximaal 3 foto's, bijvoorbeeld 0011, 0008 en 0000"}
+              className="px-3 py-2 rounded-md text-xs font-medium border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Productreferenties ({productReferenceFiles.length}/3)
+            </button>
+            {productReferenceFiles.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setProductReferenceFiles([])}
+                disabled={isGenerating}
+                className="px-2 py-2 rounded-md text-xs text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+              >
+                Wissen
+              </button>
+            )}
             {generatedImage && (
               <button 
                 onClick={() => setGeneratedImage(null)}

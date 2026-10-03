@@ -45,54 +45,30 @@ export function FacadeCanvas() {
 
   const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
   const [dragCurrent, setDragCurrent] = useState<{ x: number, y: number } | null>(null);
+  const [polygonPoints, setPolygonPoints] = useState<{ x: number, y: number }[]>([]);
+  const [polygonPreviewPoint, setPolygonPreviewPoint] = useState<{ x: number, y: number } | null>(null);
   const [segmentError, setSegmentError] = useState<string | null>(null);
   // Debug view: this is the exact raster mask stored in Zustand and sent
   // unchanged to /api/replicate as selection.rasterMasks.
   const [showGenerationMask, setShowGenerationMask] = useState(true);
-  const [kozijnDetections, setKozijnDetections] = useState<Array<{ x: number; y: number; width: number; height: number; confidence: number }>>([]);
-  const [isDetectingKozijnen, setIsDetectingKozijnen] = useState(false);
+  const [mountingMode, setMountingMode] = useState<'IN_DE_DAG' | 'OP_DE_DAG'>('OP_DE_DAG');
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setKozijnDetections([]);
-    setIsDetectingKozijnen(true);
+    setSegmentError(null);
 
+    // Keep the facade image portable for the API request. Object URLs
+    // (blob:...) only exist in this browser and cannot be decoded server-side.
     const reader = new FileReader();
-    reader.onload = async (event) => {
-      if (!event.target?.result) {
-        setIsDetectingKozijnen(false);
+    reader.onload = () => {
+      if (typeof reader.result !== "string" || !/^data:image\/(png|jpeg|webp);base64,/.test(reader.result)) {
+        setSegmentError("De gevel foto kon niet als base64-afbeelding worden ingelezen.");
         return;
       }
-
-      setOriginalImage(event.target.result as string);
-
-      try {
-        const formData = new FormData();
-        formData.append('image', file);
-
-        const response = await fetch('/api/roboflow-test', {
-          method: 'POST',
-          body: formData
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data?.error || 'Roboflow detectie mislukt.');
-        }
-
-        const predictions =
-          data?.result?.outputs?.[0]?.predictions?.predictions || [];
-
-        setKozijnDetections(predictions);
-      } catch (error) {
-        console.error('Roboflow kozijn detectie:', error);
-        setKozijnDetections([]);
-      } finally {
-        setIsDetectingKozijnen(false);
-      }
+      setOriginalImage(reader.result);
     };
+    reader.onerror = () => setSegmentError("De gevel foto kon niet worden gelezen.");
     reader.readAsDataURL(file);
   };
 
@@ -112,39 +88,6 @@ export function FacadeCanvas() {
 
     const imageWidth = imgRef.current?.naturalWidth || canvas.width;
     const imageHeight = imgRef.current?.naturalHeight || canvas.height;
-
-    // Roboflow returns bounding boxes in original-image pixels.
-    // Draw them only as guidance; the existing drag mask remains authoritative.
-    kozijnDetections.forEach((detection, index) => {
-      const left = (detection.x - detection.width / 2) * canvas.width / imageWidth;
-      const width = detection.width * canvas.width / imageWidth;
-
-      // Keep the detected box exactly the same size. Only shift the visual
-      // guidance box 10 source-image pixels downward; detection data and
-      // generation mask remain untouched.
-      const verticalShift = 3;
-      const top = (detection.y - detection.height / 2 + verticalShift) * canvas.height / imageHeight;
-      const height = detection.height * canvas.height / imageHeight;
-
-      ctx.save();
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(left, top, width, height);
-      ctx.setLineDash([]);
-
-      ctx.fillStyle = '#22c55e';
-      ctx.beginPath();
-      ctx.arc(left + 12, top + 12, 11, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 12px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(index + 1), left + 12, top + 12);
-      ctx.restore();
-    });
 
     masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
@@ -236,26 +179,78 @@ export function FacadeCanvas() {
       }
     });
 
-    if (dragStart && dragCurrent) {
+    if (polygonPoints.length > 0 && activeProduct !== 'KNIKARMSCHERMEN') {
       const hexColor = getColorHex(activeFabricColor || activeSystemColor);
-      const left = Math.min(dragStart.x, dragCurrent.x) * canvas.width;
-      const right = Math.max(dragStart.x, dragCurrent.x) * canvas.width;
-      const top = Math.min(dragStart.y, dragCurrent.y) * canvas.height;
-      const bottom = Math.max(dragStart.y, dragCurrent.y) * canvas.height;
+      ctx.save();
+      ctx.strokeStyle = hexColor;
+      ctx.fillStyle = `${hexColor}22`;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      polygonPoints.forEach((point, index) => {
+        const x = point.x * canvas.width;
+        const y = point.y * canvas.height;
+        if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      if (polygonPoints.length === 4) ctx.closePath();
+      ctx.stroke();
+      if (polygonPoints.length === 4) ctx.fill();
 
+      // Live guide: after each corner click, show exactly where the next
+      // straight edge will be drawn. After 4 points, show the closing edge
+      // back to point 1 so perspective alignment can be checked before
+      // committing the mask.
+      if (polygonPreviewPoint && polygonPoints.length < 4) {
+        const last = polygonPoints[polygonPoints.length - 1];
+        ctx.beginPath();
+        ctx.moveTo(last.x * canvas.width, last.y * canvas.height);
+        ctx.lineTo(polygonPreviewPoint.x * canvas.width, polygonPreviewPoint.y * canvas.height);
+        ctx.strokeStyle = '#39FF14';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (polygonPoints.length === 4) {
+        const first = polygonPoints[0];
+        const last = polygonPoints[3];
+        ctx.beginPath();
+        ctx.moveTo(last.x * canvas.width, last.y * canvas.height);
+        ctx.lineTo(first.x * canvas.width, first.y * canvas.height);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      polygonPoints.forEach((point, index) => {
+        const x = point.x * canvas.width;
+        const y = point.y * canvas.height;
+        ctx.beginPath();
+        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = hexColor;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.fillStyle = hexColor;
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(index + 1), x, y);
+      });
+      ctx.restore();
+    }
+
+    if (activeProduct === 'KNIKARMSCHERMEN' && dragStart && dragCurrent) {
+      const hexColor = getColorHex(activeFabricColor || activeSystemColor);
       ctx.strokeStyle = `${hexColor}DD`;
       ctx.setLineDash([7, 5]);
       ctx.lineWidth = 3;
-
-      if (activeProduct === 'KNIKARMSCHERMEN') {
-        ctx.beginPath();
-        ctx.moveTo(dragStart.x * canvas.width, dragStart.y * canvas.height);
-        ctx.lineTo(dragCurrent.x * canvas.width, dragStart.y * canvas.height);
-        ctx.stroke();
-      } else {
-        ctx.strokeRect(left, top, right - left, bottom - top);
-      }
-
+      ctx.beginPath();
+      ctx.moveTo(dragStart.x * canvas.width, dragStart.y * canvas.height);
+      ctx.lineTo(dragCurrent.x * canvas.width, dragCurrent.y * canvas.height);
+      ctx.stroke();
       ctx.setLineDash([]);
     }
   };
@@ -279,30 +274,43 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, dragStart, dragCurrent, originalImage, showGenerationMask, kozijnDetections]);
+  }, [masks, polygonPoints, polygonPreviewPoint, dragStart, dragCurrent, originalImage, showGenerationMask, mountingMode]);
 
   // The drag rectangle is the complete and authoritative generation mask for
-  // rolluiken and screens. There is deliberately no kozijn search, SAM3
-  // segmentation, mask merging or contour interpretation in this path.
-  const buildDragRasterMask = (
-    selection: { left: number; top: number; right: number; bottom: number },
+  // Rolluiken and screens use only the exact four-point user selection.
+  const buildPolygonRasterMask = (
+    points: { x: number; y: number }[],
     imageWidth: number,
     imageHeight: number
   ) => {
-    const left = Math.max(0, Math.min(imageWidth - 1, Math.floor(selection.left * imageWidth)));
-    const top = Math.max(0, Math.min(imageHeight - 1, Math.floor(selection.top * imageHeight)));
-    const right = Math.max(left + 1, Math.min(imageWidth, Math.ceil(selection.right * imageWidth)));
-    const bottom = Math.max(top + 1, Math.min(imageHeight, Math.ceil(selection.bottom * imageHeight)));
-    const width = right - left;
-    const height = bottom - top;
+    const pixelPoints = points.map((point) => ({ x: point.x * imageWidth, y: point.y * imageHeight }));
+    const left = Math.max(0, Math.floor(Math.min(...pixelPoints.map((p) => p.x))));
+    const top = Math.max(0, Math.floor(Math.min(...pixelPoints.map((p) => p.y))));
+    const right = Math.min(imageWidth, Math.ceil(Math.max(...pixelPoints.map((p) => p.x))));
+    const bottom = Math.min(imageHeight, Math.ceil(Math.max(...pixelPoints.map((p) => p.y))));
+    const width = Math.max(1, right - left);
+    const height = Math.max(1, bottom - top);
 
-    return {
-      data: Array(width * height).fill(255),
-      width,
-      height,
-      offsetX: left,
-      offsetY: top,
-    };
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = width;
+    maskCanvas.height = height;
+    const maskCtx = maskCanvas.getContext('2d');
+    if (!maskCtx) throw new Error('De selectie kon niet worden opgebouwd.');
+
+    maskCtx.fillStyle = '#ffffff';
+    maskCtx.beginPath();
+    pixelPoints.forEach((point, index) => {
+      const x = point.x - left;
+      const y = point.y - top;
+      if (index === 0) maskCtx.moveTo(x, y); else maskCtx.lineTo(x, y);
+    });
+    maskCtx.closePath();
+    maskCtx.fill();
+
+    const imageData = maskCtx.getImageData(0, 0, width, height);
+    const data = new Array<number>(width * height);
+    for (let i = 0; i < data.length; i++) data[i] = imageData.data[i * 4 + 3] > 0 ? 255 : 0;
+    return { data, width, height, offsetX: left, offsetY: top };
   };
 
   const getPointerPosition = (e: PointerEvent<HTMLCanvasElement>) => {
@@ -319,23 +327,61 @@ export function FacadeCanvas() {
   const handlePointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
     const position = getPointerPosition(e);
     if (!position) return;
-
     e.currentTarget.setPointerCapture(e.pointerId);
-    setDragStart(position);
-    setDragCurrent(position);
     setSegmentError(null);
+
+    if (activeProduct === 'KNIKARMSCHERMEN') {
+      setDragStart(position);
+      setDragCurrent(position);
+      return;
+    }
+
+    const nextPoints = [...polygonPoints, position];
+    setPolygonPreviewPoint(null);
+    if (nextPoints.length < 4) {
+      setPolygonPoints(nextPoints);
+      return;
+    }
+
+    const imageWidth = imgRef.current?.naturalWidth;
+    const imageHeight = imgRef.current?.naturalHeight;
+    if (!imageWidth || !imageHeight) {
+      setPolygonPoints([]);
+      setSegmentError('De afmetingen van de foto konden niet worden bepaald.');
+      return;
+    }
+
+    const rasterMask = buildPolygonRasterMask(nextPoints, imageWidth, imageHeight);
+    setShowGenerationMask(true);
+    addMask({
+      type: 'RASTER_MASK',
+      coordinates: nextPoints,
+      rasterMasks: [rasterMask],
+      productType: activeProduct,
+      systemColor: activeSystemColor,
+      fabricColor: activeFabricColor || undefined,
+      mountingMode: activeProduct === 'ROLLUIKEN' ? mountingMode : undefined,
+    });
+    setPolygonPoints([]);
   };
 
   const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
-    if (!dragStart) return;
     const position = getPointerPosition(e);
     if (!position) return;
-    setDragCurrent(position);
+
+    if (activeProduct === 'KNIKARMSCHERMEN') {
+      if (!dragStart) return;
+      setDragCurrent(position);
+      return;
+    }
+
+    if (polygonPoints.length > 0 && polygonPoints.length < 4) {
+      setPolygonPreviewPoint(position);
+    }
   };
 
   const handlePointerUp = async (e: PointerEvent<HTMLCanvasElement>) => {
-    if (!dragStart) return;
-
+    if (activeProduct !== 'KNIKARMSCHERMEN' || !dragStart) return;
     const end = getPointerPosition(e);
     if (!end) {
       setDragStart(null);
@@ -347,133 +393,28 @@ export function FacadeCanvas() {
     setDragStart(null);
     setDragCurrent(null);
 
-    const width = Math.abs(end.x - start.x);
-    const height = Math.abs(end.y - start.y);
-
-    const MIN_DRAG_SIZE = 0.01;
-
-    // A short click on a detected kozijn selects that complete detected box.
-    // The box keeps its original width/height and uses the same 10px downward
-    // visual correction as the green guidance box.
-    if (Math.max(width, height) < MIN_DRAG_SIZE && activeProduct !== 'KNIKARMSCHERMEN') {
-      const imageWidth = imgRef.current?.naturalWidth;
-      const imageHeight = imgRef.current?.naturalHeight;
-
-      if (!imageWidth || !imageHeight) {
-        setSegmentError('De afmetingen van de foto konden niet worden bepaald.');
-        return;
-      }
-
-      const clickX = start.x * imageWidth;
-      const clickY = start.y * imageHeight;
-      const verticalShift = 3;
-
-      const detection = kozijnDetections.find((d) => {
-        const left = d.x - d.width / 2;
-        const top = d.y - d.height / 2 + verticalShift;
-        return (
-          clickX >= left &&
-          clickX <= left + d.width &&
-          clickY >= top &&
-          clickY <= top + d.height
-        );
-      });
-
-      if (detection) {
-        const left = Math.max(0, Math.min(imageWidth - 1, Math.floor(detection.x - detection.width / 2)));
-        const top = Math.max(0, Math.min(imageHeight - 1, Math.floor(detection.y - detection.height / 2 + verticalShift)));
-        const right = Math.max(left + 1, Math.min(imageWidth, Math.ceil(detection.x + detection.width / 2)));
-        const bottom = Math.max(top + 1, Math.min(imageHeight, Math.ceil(detection.y + detection.height / 2 + verticalShift)));
-
-        const rasterMask = {
-          data: Array((right - left) * (bottom - top)).fill(255),
-          width: right - left,
-          height: bottom - top,
-          offsetX: left,
-          offsetY: top,
-        };
-
-        // Do not add the exact same detected kozijn twice.
-        const alreadySelected = masks.some((mask) =>
-          mask.type === 'RASTER_MASK' &&
-          mask.rasterMasks?.some((raster) =>
-            raster.offsetX === rasterMask.offsetX &&
-            raster.offsetY === rasterMask.offsetY &&
-            raster.width === rasterMask.width &&
-            raster.height === rasterMask.height
-          )
-        );
-
-        if (!alreadySelected) {
-          setSegmentError(null);
-          setShowGenerationMask(true);
-          addMask({
-            type: 'RASTER_MASK',
-            coordinates: [],
-            rasterMasks: [rasterMask],
-            productType: activeProduct,
-            systemColor: activeSystemColor,
-            fabricColor: activeFabricColor || undefined
-          });
-        } else {
-          setSegmentError('Dit kozijn is al geselecteerd.');
-        }
-        return;
-      }
-
-      setSegmentError('Klik op een groen kozijn of sleep over de gewenste plek.');
-      return;
-    }
-
-    if (Math.max(width, height) < MIN_DRAG_SIZE) {
+    if (Math.abs(end.x - start.x) < 0.01) {
       setSegmentError('Sleep over de gewenste breedte van het knikarmscherm.');
       return;
     }
 
-    if (activeProduct === 'KNIKARMSCHERMEN') {
-      const y = start.y;
-      addMask({
-        type: 'LINE',
-        coordinates: [
-          { x: Math.min(start.x, end.x), y },
-          { x: Math.max(start.x, end.x), y }
-        ],
-        productType: activeProduct,
-        systemColor: activeSystemColor,
-        fabricColor: activeFabricColor || undefined
-      });
-      return;
-    }
-
-    setSegmentError(null);
-
-    const selection = {
-      left: Math.min(start.x, end.x),
-      top: Math.min(start.y, end.y),
-      right: Math.max(start.x, end.x),
-      bottom: Math.max(start.y, end.y)
-    };
-
-    const imageWidth = imgRef.current?.naturalWidth;
-    const imageHeight = imgRef.current?.naturalHeight;
-
-    if (!imageWidth || !imageHeight) {
-      setSegmentError('De afmetingen van de foto konden niet worden bepaald.');
-      return;
-    }
-
-    // EXACTLY the user's drag rectangle is sent onward as the mask.
-    const rasterMask = buildDragRasterMask(selection, imageWidth, imageHeight);
-    setShowGenerationMask(true);
-
+    const y = start.y;
     addMask({
-      type: 'RASTER_MASK',
-      coordinates: [],
-      rasterMasks: [rasterMask],
+      type: 'LINE',
+      coordinates: [
+        { x: Math.min(start.x, end.x), y },
+        { x: Math.max(start.x, end.x), y }
+      ],
       productType: activeProduct,
       systemColor: activeSystemColor,
       fabricColor: activeFabricColor || undefined
     });
+  };
+
+  const resetPolygonSelection = () => {
+    setPolygonPoints([]);
+    setPolygonPreviewPoint(null);
+    setSegmentError(null);
   };
 
   if (!originalImage) {
@@ -511,7 +452,7 @@ export function FacadeCanvas() {
             setDragStart(null);
             setDragCurrent(null);
           }}
-          className={`absolute top-0 left-0 w-full h-full rounded-sm ${activeProduct === 'KNIKARMSCHERMEN' ? 'cursor-crosshair' : 'cursor-pointer'}`}
+          className="absolute top-0 left-0 w-full h-full rounded-sm cursor-crosshair"
           style={{ touchAction: 'none' }}
         />
       </div>
@@ -526,11 +467,13 @@ export function FacadeCanvas() {
         </button>
       )}
 
-      {isDetectingKozijnen && (
-        <div className="absolute top-16 left-4 z-20 bg-green-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
-          Kozijnen zoeken...
+
+      <div className="absolute top-16 right-4 z-20 bg-white/95 text-gray-900 rounded-lg shadow-lg border p-2 flex gap-1">
+          <span className="text-xs font-semibold px-2 py-2">Montage</span>
+          <button type="button" onClick={() => setMountingMode('IN_DE_DAG')} className={`px-3 py-1.5 rounded text-xs font-medium ${mountingMode === 'IN_DE_DAG' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>In de dag</button>
+          <button type="button" onClick={() => setMountingMode('OP_DE_DAG')} className={`px-3 py-1.5 rounded text-xs font-medium ${mountingMode === 'OP_DE_DAG' ? 'bg-green-600 text-white' : 'bg-gray-100'}`}>Op de dag</button>
         </div>
-      )}
+
 
       {showGenerationMask && masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
         <div className="absolute bottom-4 left-4 z-20 bg-fuchsia-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
@@ -542,11 +485,15 @@ export function FacadeCanvas() {
         <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
         {segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
           ? "Sleep over de gewenste breedte van het knikarmscherm."
-          : kozijnDetections.length > 0
-            ? "Klik op een groen kozijn om het automatisch te selecteren, of sleep handmatig."
-            : "Sleep exact over het gebied waar het product moet komen."
+          : "Klik 4 punten op de vier hoeken van het kozijn."
         }
       </div>
+
+      {activeProduct !== 'KNIKARMSCHERMEN' && polygonPoints.length > 0 && (
+        <button type="button" onClick={resetPolygonSelection} className="absolute top-16 left-4 z-20 bg-white/95 hover:bg-white text-gray-800 px-4 py-2 rounded-md text-sm shadow-lg font-semibold border">
+          Opnieuw ({polygonPoints.length}/4)
+        </button>
+      )}
 
       <button
          onClick={() => { setOriginalImage(''); clearMasks(); }}
