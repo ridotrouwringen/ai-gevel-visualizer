@@ -1,4 +1,4 @@
-import { NextResponse } from "next";
+import { NextResponse } from "next/server";
 import sharp from "sharp";
 
 export const maxDuration = 120;
