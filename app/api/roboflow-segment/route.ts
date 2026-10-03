@@ -7,13 +7,20 @@ export async function POST(request: Request) {
   try {
     const apiKey = process.env.ROBOFLOW_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "ROBOFLOW_API_KEY ontbreekt in Vercel Environment Variables." }, { status: 500 });
+      return NextResponse.json(
+        { error: "ROBOFLOW_API_KEY ontbreekt in Vercel Environment Variables." },
+        { status: 500 }
+      );
     }
 
     const formData = await request.formData();
     const image = formData.get("image");
+
     if (!(image instanceof File)) {
-      return NextResponse.json({ error: "Stuur een afbeelding mee als form-data veld 'image'." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Stuur een afbeelding mee als form-data veld 'image'." },
+        { status: 400 }
+      );
     }
 
     const bytes = await image.arrayBuffer();
@@ -23,54 +30,49 @@ export async function POST(request: Request) {
       `https://serverless.roboflow.com/${ROBOFLOW_WORKSPACE}/workflows/${ROBOFLOW_WORKFLOW}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           api_key: apiKey,
-          inputs: { image: { type: "base64", value: base64 } },
+          inputs: {
+            image: {
+              type: "base64",
+              value: base64,
+            },
+          },
         }),
       }
     );
 
     const result = await response.json();
 
-    const rawTopLevelKeys = result && typeof result === "object" ? Object.keys(result) : [];
-    const workflowResult = result?.result && typeof result.result === "object" ? result.result : result;
-    const nestedResultKeys = result?.result && typeof result.result === "object" ? Object.keys(result.result) : [];
-    const outputList = workflowResult?.outputs;
-    const outputCount = Array.isArray(outputList) ? outputList.length : 0;
-    const firstOutput = Array.isArray(outputList) ? outputList[0] : undefined;
-    const outputKeys = firstOutput && typeof firstOutput === "object" ? Object.keys(firstOutput) : [];
-    const predictionContainer = firstOutput?.predictions;
-    const predictionContainerKeys =
-      predictionContainer && typeof predictionContainer === "object"
-        ? Object.keys(predictionContainer)
-        : [];
-    const rawPredictions = predictionContainer?.predictions;
-    const predictionsIsArray = Array.isArray(rawPredictions);
-    const predictionCount = predictionsIsArray ? rawPredictions.length : 0;
-
     if (!response.ok) {
       return NextResponse.json(
         {
-          error: result?.error || result?.message || `Roboflow gaf HTTP ${response.status} terug.`,
+          error:
+            result?.error ||
+            result?.message ||
+            `Roboflow gaf HTTP ${response.status} terug.`,
           roboflowStatus: response.status,
-          diagnostics: {
-            rawTopLevelKeys,
-            nestedResultKeys,
-            outputCount,
-            outputKeys,
-            predictionContainerKeys,
-            predictionsIsArray,
-            predictionCount,
-          },
         },
         { status: response.status }
       );
     }
 
-    // Gebruik exact dezelfde response-vorm als de bewezen main-route.
-    const predictions = workflowResult?.outputs?.[0]?.predictions?.predictions || [];
-    const imageInfo = workflowResult?.outputs?.[0]?.predictions?.image || {};
+    // Main gebruikt result.outputs. De serverless workflow-response die we
+    // hier daadwerkelijk ontvangen heeft outputs op top-level. Ondersteun
+    // beide vormen, zonder de predictions zelf te veranderen.
+    const workflowResult =
+      result?.result && typeof result.result === "object"
+        ? result.result
+        : result;
+
+    const predictions =
+      workflowResult?.outputs?.[0]?.predictions?.predictions || [];
+
+    const imageInfo =
+      workflowResult?.outputs?.[0]?.predictions?.image || {};
 
     const boxes = Array.isArray(predictions)
       ? predictions
@@ -82,26 +84,50 @@ export async function POST(request: Request) {
             confidence: Number(p.confidence) || 0,
             class: typeof p.class === "string" ? p.class : undefined,
           }))
-          .filter((p: any) =>
-            [p.x, p.y, p.width, p.height].every(Number.isFinite) &&
-            p.width > 0 && p.height > 0
+          .filter(
+            (p: any) =>
+              [p.x, p.y, p.width, p.height].every(Number.isFinite) &&
+              p.width > 0 &&
+              p.height > 0
           )
       : [];
 
     const imageWidth = Number(imageInfo?.width) || null;
     const imageHeight = Number(imageInfo?.height) || null;
 
-    const selectedMasks = imageWidth && imageHeight
-      ? boxes.map((box: any) => {
-          const left = Math.max(0, Math.floor(box.x - box.width / 2));
-          const top = Math.max(0, Math.floor(box.y - box.height / 2));
-          const right = Math.min(imageWidth, Math.ceil(box.x + box.width / 2));
-          const bottom = Math.min(imageHeight, Math.ceil(box.y + box.height / 2));
-          const width = Math.max(1, right - left);
-          const height = Math.max(1, bottom - top);
-          return { data: Array(width * height).fill(255), width, height, offsetX: left, offsetY: top };
-        })
-      : [];
+    // De bestaande stabilisatie-pipeline verwacht deze rechthoekmaskers voor
+    // een klik op een Roboflow-box. De detectie zelf blijft 1-op-1 de boxes.
+    const selectedMasks =
+      imageWidth && imageHeight
+        ? boxes.map((box: any) => {
+            const left = Math.max(
+              0,
+              Math.floor(box.x - box.width / 2)
+            );
+            const top = Math.max(
+              0,
+              Math.floor(box.y - box.height / 2)
+            );
+            const right = Math.min(
+              imageWidth,
+              Math.ceil(box.x + box.width / 2)
+            );
+            const bottom = Math.min(
+              imageHeight,
+              Math.ceil(box.y + box.height / 2)
+            );
+            const width = Math.max(1, right - left);
+            const height = Math.max(1, bottom - top);
+
+            return {
+              data: Array(width * height).fill(255),
+              width,
+              height,
+              offsetX: left,
+              offsetY: top,
+            };
+          })
+        : [];
 
     return NextResponse.json({
       ok: true,
@@ -112,32 +138,21 @@ export async function POST(request: Request) {
       roboflowStatus: response.status,
       segmentationType: "bounding-box",
       source: "main-workflow",
-      diagnostics: {
-        rawTopLevelKeys,
-        nestedResultKeys,
-        outputCount,
-        outputKeys,
-        predictionContainerKeys,
-        predictionsIsArray,
-        predictionCount,
-        imageInfo,
-        samplePrediction: predictionsIsArray && rawPredictions[0] ? {
-          x: rawPredictions[0].x,
-          y: rawPredictions[0].y,
-          width: rawPredictions[0].width,
-          height: rawPredictions[0].height,
-          confidence: rawPredictions[0].confidence,
-          class: rawPredictions[0].class,
-        } : null,
-      },
+      predictionCount: predictions.length,
       message: boxes.length
         ? `Roboflow: ${boxes.length} kozijn(en) gevonden.`
         : "Roboflow gaf 0 kozijnen terug.",
     });
   } catch (error) {
     console.error("Roboflow kozijn detectie:", error);
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Onbekende fout bij Roboflow detectie." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Onbekende fout bij Roboflow detectie.",
+      },
       { status: 500 }
     );
   }
