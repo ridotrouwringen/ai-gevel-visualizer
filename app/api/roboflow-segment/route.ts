@@ -63,7 +63,7 @@ export async function POST(req: Request) {
 
     const output = rfJson?.result?.outputs?.[0];
     const predictionOutput = output?.predictions ?? output?.result ?? output;
-    const collect = (value, found = [], seen = new Set()) => {
+    const collect = (value: any, found: any[] = [], seen: Set<any> = new Set<any>()): any[] => {
       if (!value || typeof value !== "object" || seen.has(value)) return found;
       seen.add(value);
       if (Array.isArray(value)) { for (const item of value) collect(item, found, seen); return found; }
