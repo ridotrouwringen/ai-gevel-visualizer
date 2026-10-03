@@ -61,12 +61,29 @@ export async function POST(req: Request) {
       );
     }
 
-    const predictions =
-      rfJson?.result?.outputs?.[0]?.predictions?.predictions ?? [];
-    const imageInfo = rfJson?.result?.outputs?.[0]?.predictions?.image;
-    const metadata = await sharp(Buffer.from(base64, "base64")).metadata();
-    const imageWidth = Number(imageInfo?.width ?? metadata.width ?? 0);
-    const imageHeight = Number(imageInfo?.height ?? metadata.height ?? 0);
+    const output = rfJson?.result?.outputs?.[0];
+    const predictionOutput = output?.predictions ?? output?.result ?? output;
+    const collect = (value, found = [], seen = new Set()) => {
+      if (!value || typeof value !== "object" || seen.has(value)) return found;
+      seen.add(value);
+      if (Array.isArray(value)) { for (const item of value) collect(item, found, seen); return found; }
+      if ([value.x, value.y, value.width, value.height].every((n) => typeof n === "number") && value.width > 0 && value.height > 0) {
+        found.push(value); return found;
+      }
+      for (const child of Object.values(value)) collect(child, found, seen);
+      return found;
+    };
+    const predictions = collect(predictionOutput);
+    const imageInfo = predictionOutput?.image ?? output?.image;
+    const metadata = await sharp(Buffer.from(base64, "base64")).rotate().metadata();
+    const originalWidth = Number(metadata.width ?? 0);
+    const originalHeight = Number(metadata.height ?? 0);
+    const rfWidth = Number(imageInfo?.width ?? originalWidth);
+    const rfHeight = Number(imageInfo?.height ?? originalHeight);
+    const imageWidth = originalWidth;
+    const imageHeight = originalHeight;
+    const scaleX = originalWidth / rfWidth;
+    const scaleY = originalHeight / rfHeight;
 
     if (!imageWidth || !imageHeight) {
       return NextResponse.json(
@@ -80,10 +97,10 @@ export async function POST(req: Request) {
         p && [p.x, p.y, p.width, p.height].every((n: any) => typeof n === "number")
       )
       .map((p: any) => ({
-        x: p.x,
-        y: p.y,
-        width: p.width,
-        height: p.height,
+        x: p.x * scaleX,
+        y: p.y * scaleY,
+        width: p.width * scaleX,
+        height: p.height * scaleY,
         confidence: typeof p.confidence === "number" ? p.confidence : undefined,
       }));
 
@@ -115,7 +132,8 @@ export async function POST(req: Request) {
       imageHeight,
       source: "roboflow-only-detection-boxes",
       segmentationType: "bounding-box",
-      message: "SAM 3 uitgeschakeld. Alleen Roboflow-detectiekaders worden gebruikt; dit zijn geen pixelmaskers.",
+      message: boxes.length ? `${boxes.length} kozijn(en) gevonden door Roboflow.` : "Roboflow gaf geen detecties terug; controleer de workflow-output.",
+      providerOutputKeys: rfJson?.result?.outputs?.[0] ? Object.keys(rfJson.result.outputs[0]) : Object.keys(rfJson ?? {}),
     });
   } catch (error) {
     console.error("Roboflow kozijnherkenning:", error);
