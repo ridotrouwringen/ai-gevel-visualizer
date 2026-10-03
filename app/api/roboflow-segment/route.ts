@@ -1,235 +1,172 @@
 import { NextResponse } from "next/server";
-import sharp from "sharp";
 
-export const maxDuration = 120;
-
+const ROBOFLOW_WORKSPACE = "gevels";
 const ROBOFLOW_WORKFLOW =
   "kozijn-detectie-vkozijn-detectie-2-rfdetr-small-t1-logic";
 
-type Detection = {
+type Prediction = {
   x: number;
   y: number;
   width: number;
   height: number;
   confidence?: number;
+  class?: string;
 };
 
-type AnyRecord = Record<string, unknown>;
+function normalizePredictions(value: unknown): Prediction[] {
+  if (!Array.isArray(value)) return [];
 
-function isBox(value: unknown): value is Detection {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const v = value as AnyRecord;
-  return (
-    typeof v.x === "number" &&
-    typeof v.y === "number" &&
-    typeof v.width === "number" &&
-    typeof v.height === "number" &&
-    Number.isFinite(v.x) &&
-    Number.isFinite(v.y) &&
-    Number.isFinite(v.width) &&
-    Number.isFinite(v.height) &&
-    v.width > 0 &&
-    v.height > 0
-  );
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      x: Number(item.x),
+      y: Number(item.y),
+      width: Number(item.width),
+      height: Number(item.height),
+      confidence: typeof item.confidence === "number" ? item.confidence : undefined,
+      class: typeof item.class === "string" ? item.class : undefined,
+    }))
+    .filter(
+      (item) =>
+        Number.isFinite(item.x) &&
+        Number.isFinite(item.y) &&
+        Number.isFinite(item.width) &&
+        Number.isFinite(item.height) &&
+        item.width > 0 &&
+        item.height > 0
+    );
 }
 
-function collectPredictionObjects(value: unknown, found: Detection[] = [], seen = new Set<unknown>()) {
-  if (!value || typeof value !== "object" || seen.has(value)) return found;
-  seen.add(value);
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      if (isBox(item)) found.push(item);
-      else collectPredictionObjects(item, found, seen);
-    }
-    return found;
-  }
-
-  const object = value as AnyRecord;
-  if (isBox(object)) {
-    found.push(object);
-    return found;
-  }
-
-  // Roboflow Workflows normally exposes:
-  // outputs[0].predictions.predictions
-  // but workflow versions can wrap that object differently. Only recurse
-  // through prediction-named fields so image metadata is never mistaken for a box.
-  for (const [key, child] of Object.entries(object)) {
-    if (key.toLowerCase().includes("prediction")) {
-      collectPredictionObjects(child, found, seen);
-    }
-  }
-
-  return found;
-}
-
-function extractPredictions(rfJson: unknown): Detection[] {
-  const root = rfJson as AnyRecord | null;
-  const result = root?.result as AnyRecord | undefined;
+export function extractRoboflowPredictions(payload: unknown): Prediction[] {
+  const root = payload as Record<string, unknown> | null;
+  const result = root?.result as Record<string, unknown> | undefined;
   const outputs = result?.outputs;
 
-  if (Array.isArray(outputs)) {
-    for (const output of outputs) {
-      const direct = (output as AnyRecord | null)?.predictions;
-      const predictions = collectPredictionObjects(direct);
-      if (predictions.length) return predictions;
-    }
-  }
+  if (!Array.isArray(outputs)) return [];
 
-  return collectPredictionObjects(result);
+  const output = outputs[0] as Record<string, unknown> | undefined;
+  const predictionContainer = output?.predictions as Record<string, unknown> | undefined;
+
+  return normalizePredictions(predictionContainer?.predictions);
 }
 
-function extractImageInfo(rfJson: unknown): { width?: number; height?: number } {
-  const root = rfJson as AnyRecord | null;
-  const result = root?.result as AnyRecord | undefined;
-  const outputs = result?.outputs;
-
-  if (!Array.isArray(outputs)) return {};
-
-  for (const output of outputs) {
-    const o = output as AnyRecord | null;
-    const predictionContainer = o?.predictions as AnyRecord | undefined;
-    const image =
-      (predictionContainer?.image as AnyRecord | undefined) ??
-      (o?.image as AnyRecord | undefined);
-
-    if (
-      image &&
-      typeof image.width === "number" &&
-      typeof image.height === "number" &&
-      image.width > 0 &&
-      image.height > 0
-    ) {
-      return { width: image.width, height: image.height };
-    }
-  }
-
-  return {};
-}
-
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const contentType = req.headers.get("content-type") ?? "";
-    let image: string | null = null;
+    const apiKey = process.env.ROBOFLOW_API_KEY;
 
-    if (contentType.includes("multipart/form-data")) {
-      const form = await req.formData();
-      const file = form.get("image");
-      if (file instanceof File) {
-        const bytes = Buffer.from(await file.arrayBuffer());
-        image = `data:${file.type || "image/png"};base64,${bytes.toString("base64")}`;
-      }
-    } else {
-      const body = await req.json();
-      image = typeof body?.image === "string" ? body.image : null;
-    }
-
-    if (!image) {
-      return NextResponse.json({ error: "Afbeelding ontbreekt." }, { status: 400 });
-    }
-
-    const apiKey = process.env.ROBOFLOW_API_KEY ?? process.env.ROBOFLOW_API_TOKEN;
     if (!apiKey) {
       return NextResponse.json(
-        { error: "ROBOFLOW_API_KEY ontbreekt." },
+        { error: "ROBOFLOW_API_KEY ontbreekt in Vercel Environment Variables." },
         { status: 500 }
       );
     }
 
-    const comma = image.indexOf(",");
-    const base64 = comma >= 0 ? image.slice(comma + 1) : image;
+    const formData = await request.formData();
+    const image = formData.get("image");
 
-    const rf = await fetch(
-      `https://serverless.roboflow.com/gevels/workflows/${ROBOFLOW_WORKFLOW}`,
+    if (!(image instanceof File)) {
+      return NextResponse.json(
+        { error: "Stuur een afbeelding mee als form-data veld 'image'." },
+        { status: 400 }
+      );
+    }
+
+    const bytes = await image.arrayBuffer();
+    const base64 = Buffer.from(bytes).toString("base64");
+
+    // This is deliberately the same Roboflow request that was working in main.
+    const response = await fetch(
+      `https://serverless.roboflow.com/${ROBOFLOW_WORKSPACE}/workflows/${ROBOFLOW_WORKFLOW}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           api_key: apiKey,
-          inputs: { image: { type: "base64", value: base64 } },
+          inputs: {
+            image: {
+              type: "base64",
+              value: base64,
+            },
+          },
         }),
       }
     );
 
-    const rfJson = await rf.json();
+    const result = await response.json();
 
-    if (!rf.ok) {
+    if (!response.ok) {
       return NextResponse.json(
-        { error: rfJson?.error ?? "Roboflow detectie mislukt." },
-        { status: rf.status }
+        {
+          error:
+            result?.error ||
+            result?.message ||
+            `Roboflow gaf HTTP ${response.status} terug.`,
+        },
+        { status: response.status }
       );
     }
 
-    const metadata = await sharp(Buffer.from(base64, "base64")).metadata();
-    const originalWidth = Number(metadata.width ?? 0);
-    const originalHeight = Number(metadata.height ?? 0);
+    const predictions = extractRoboflowPredictions(result);
 
-    if (!originalWidth || !originalHeight) {
-      return NextResponse.json(
-        { error: "De afmetingen van de gevel foto konden niet worden bepaald." },
-        { status: 400 }
-      );
-    }
-
-    const imageInfo = extractImageInfo(rfJson);
-    const rfWidth = imageInfo.width ?? originalWidth;
-    const rfHeight = imageInfo.height ?? originalHeight;
-    const scaleX = originalWidth / rfWidth;
-    const scaleY = originalHeight / rfHeight;
-
-    const predictions = extractPredictions(rfJson);
-
-    const boxes: Detection[] = predictions.map((p) => ({
-      x: p.x * scaleX,
-      y: p.y * scaleY,
-      width: p.width * scaleX,
-      height: p.height * scaleY,
-      confidence: typeof p.confidence === "number" ? p.confidence : undefined,
+    // Keep the original Roboflow center/width/height coordinates. The browser
+    // canvas uses the uploaded image's natural dimensions, exactly as main did.
+    const boxes = predictions.map((prediction) => ({
+      x: prediction.x,
+      y: prediction.y,
+      width: prediction.width,
+      height: prediction.height,
+      confidence: prediction.confidence ?? 0,
+      class: prediction.class,
     }));
 
-    // Roboflow returns object-detection boxes, not pixel masks.
-    // We create rectangular raster masks only to keep the existing selection
-    // pipeline compatible. SAM3 is deliberately not called.
-    const selectedMasks = boxes.map((box) => {
-      const left = Math.max(0, Math.floor(box.x - box.width / 2));
-      const top = Math.max(0, Math.floor(box.y - box.height / 2));
-      const right = Math.min(originalWidth, Math.ceil(box.x + box.width / 2));
-      const bottom = Math.min(originalHeight, Math.ceil(box.y + box.height / 2));
-      const width = Math.max(1, right - left);
-      const height = Math.max(1, bottom - top);
+    // Rectangular masks are compatibility data for the existing selection
+    // pipeline. They are not claimed to be pixel segmentation.
+    const imageInfo =
+      ((result as any)?.result?.outputs?.[0]?.predictions?.image as
+        | { width?: number; height?: number }
+        | undefined) ?? null;
 
-      return {
-        data: Array(width * height).fill(255),
-        width,
-        height,
-        offsetX: left,
-        offsetY: top,
-      };
-    });
-
-    const output = (rfJson?.result?.outputs?.[0] ?? {}) as AnyRecord;
+    const selectedMasks =
+      imageInfo?.width && imageInfo?.height
+        ? boxes.map((box) => {
+            const left = Math.max(0, Math.floor(box.x - box.width / 2));
+            const top = Math.max(0, Math.floor(box.y - box.height / 2));
+            const right = Math.min(imageInfo.width!, Math.ceil(box.x + box.width / 2));
+            const bottom = Math.min(imageInfo.height!, Math.ceil(box.y + box.height / 2));
+            const width = Math.max(1, right - left);
+            const height = Math.max(1, bottom - top);
+            return {
+              data: Array(width * height).fill(255),
+              width,
+              height,
+              offsetX: left,
+              offsetY: top,
+            };
+          })
+        : [];
 
     return NextResponse.json({
       ok: true,
       boxes,
-      maskCount: selectedMasks.length,
       selectedMasks,
-      imageWidth: originalWidth,
-      imageHeight: originalHeight,
-      source: "roboflow-only-detection-boxes",
+      maskCount: selectedMasks.length,
+      imageWidth: imageInfo?.width ?? null,
+      imageHeight: imageInfo?.height ?? null,
       segmentationType: "bounding-box",
+      source: "roboflow-main-compatible",
       message: boxes.length
-        ? `${boxes.length} kozijn(en) gevonden door Roboflow.`
-        : "Roboflow gaf 0 kozijnen terug; de API-aanroep is wel geslaagd.",
-      providerOutputKeys: Object.keys(output),
-      roboflowImageSize: { width: rfWidth, height: rfHeight },
-      coordinateScale: { x: scaleX, y: scaleY },
+        ? `Roboflow: ${boxes.length} kozijn(en) gevonden.`
+        : "Roboflow gaf 0 kozijnen terug.",
     });
   } catch (error) {
-    console.error("Roboflow kozijnherkenning:", error);
+    console.error("Roboflow kozijn detectie:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Onbekende segmentatiefout." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Onbekende fout bij Roboflow detectie.",
+      },
       { status: 500 }
     );
   }
