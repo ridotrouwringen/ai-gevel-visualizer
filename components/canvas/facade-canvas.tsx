@@ -57,7 +57,19 @@ export function FacadeCanvas() {
     const file = e.target.files?.[0];
     if (!file) return;
     setSegmentError(null);
-    setOriginalImage(URL.createObjectURL(file));
+
+    // Keep the facade image portable for the API request. Object URLs
+    // (blob:...) only exist in this browser and cannot be decoded server-side.
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string" || !/^data:image\\/(png|jpeg|webp);base64,/.test(reader.result)) {
+        setSegmentError("De gevel foto kon niet als base64-afbeelding worden ingelezen.");
+        return;
+      }
+      setOriginalImage(reader.result);
+    };
+    reader.onerror = () => setSegmentError("De gevel foto kon niet worden gelezen.");
+    reader.readAsDataURL(file);
   };
 
   const drawCanvas = () => {
