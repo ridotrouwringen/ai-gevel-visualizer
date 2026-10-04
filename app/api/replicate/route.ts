@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { compositeGeneratedProduct } from "@/lib/image-composite";
+import { perspectiveWarpRgba } from "@/lib/perspective-warp";
 import { buildLineMask, buildRasterMask, getSelectionBounds } from "@/lib/masks";
 import { generationInputError } from "@/lib/replicate-validation";
 import {
@@ -650,6 +651,9 @@ export async function POST(req: Request) {
       // Fit the isolated product to the full selected area for this test.
       // The contain experiment left roller shutters too narrow; physical
       // proportions will need to be handled with product geometry/scale later.
+      // Normalize the isolated AI product to the selection bounding box first.
+      // The four user-selected corners are then used as the authoritative
+      // perspective geometry; the AI is never asked to invent that geometry.
       const resized = await sharp(productCrop)
         .resize(localWidth, localHeight, {
           fit: "fill",
@@ -665,9 +669,6 @@ export async function POST(req: Request) {
         const r = resized.data[p];
         const g = resized.data[p + 1];
         const b = resized.data[p + 2];
-
-        // Distance from white. Pure/near white background is transparent.
-        // Keep a small soft transition so product edges do not look cut out.
         const whiteness = Math.min(r, g, b);
         const maxChannel = Math.max(r, g, b);
         const distance = 255 - whiteness;
@@ -681,23 +682,7 @@ export async function POST(req: Request) {
         }
       }
 
-      const localMaskRaw = Buffer.alloc(localWidth * localHeight);
-      for (let y = item.bounds.top; y < item.bounds.bottom; y++) {
-        const sourceStart = y * width + item.bounds.left;
-        const sourceEnd = sourceStart + localWidth;
-        const targetStart = (y - item.bounds.top) * localWidth;
-        item.maskRaw.copy(localMaskRaw, targetStart, sourceStart, sourceEnd);
-      }
-
-      // Combine the AI product alpha with the exact user-selection mask.
-      // Do this as one RGBA image: the selection mask must limit the overlay,
-      // while the white-background removal keeps the facade visible around the product.
-      const combinedAlpha = Buffer.alloc(localWidth * localHeight);
-      for (let i = 0; i < combinedAlpha.length; i++) {
-        combinedAlpha[i] = Math.round((alpha[i] * localMaskRaw[i]) / 255);
-      }
-
-      const rgbProduct = await sharp(resized.data, {
+      const baseRgbProduct = await sharp(resized.data, {
         raw: {
           width: resized.info.width,
           height: resized.info.height,
@@ -705,14 +690,73 @@ export async function POST(req: Request) {
         },
       }).raw().toBuffer();
 
+      const canPerspectiveWarp =
+        item.selection.productType !== "KNIKARMSCHERMEN" &&
+        item.selection.coordinates?.length === 4;
+
+      let overlayRgb: Buffer;
+      let overlayAlpha: Buffer;
+      let overlayWidth = localWidth;
+      let overlayHeight = localHeight;
+      let overlayLeft = item.bounds.left;
+      let overlayTop = item.bounds.top;
+
+      if (canPerspectiveWarp) {
+        const quad = item.selection.coordinates.map((point) => ({
+          x: point.x * width - item.bounds.left,
+          y: point.y * height - item.bounds.top,
+        }));
+
+        const warped = perspectiveWarpRgba(
+          baseRgbProduct,
+          alpha,
+          localWidth,
+          localHeight,
+          quad
+        );
+
+        overlayRgb = Buffer.alloc(warped.width * warped.height * 3);
+        overlayAlpha = warped.rgba;
+        overlayWidth = warped.width;
+        overlayHeight = warped.height;
+        overlayLeft = item.bounds.left + warped.offsetX;
+        overlayTop = item.bounds.top + warped.offsetY;
+
+        for (let i = 0, p = 0; i < warped.rgba.length; i += 4, p += 3) {
+          overlayRgb[p] = warped.rgba[i];
+          overlayRgb[p + 1] = warped.rgba[i + 1];
+          overlayRgb[p + 2] = warped.rgba[i + 2];
+        }
+      } else {
+        overlayRgb = baseRgbProduct;
+        overlayAlpha = alpha;
+      }
+
+      // Intersect the transformed product with the exact user mask. This
+      // guarantees that no pixels outside the selected facade area are changed.
+      const combinedAlpha = Buffer.alloc(overlayWidth * overlayHeight);
+      for (let y = 0; y < overlayHeight; y++) {
+        const globalY = overlayTop + y;
+        if (globalY < 0 || globalY >= height) continue;
+        for (let x = 0; x < overlayWidth; x++) {
+          const globalX = overlayLeft + x;
+          if (globalX < 0 || globalX >= width) continue;
+          const alphaIndex = y * overlayWidth + x;
+          const maskIndex = globalY * width + globalX;
+          combinedAlpha[alphaIndex] = Math.round(
+            (overlayAlpha[alphaIndex] * item.maskRaw[maskIndex]) / 255
+          );
+        }
+      }
+
       currentBuffer = await compositeGeneratedProduct(
         currentBuffer,
-        rgbProduct,
+        overlayRgb,
         combinedAlpha,
-        localWidth,
-        localHeight,
-        item.bounds.left,
-        item.bounds.top
+        overlayWidth,
+        overlayHeight,
+        overlayLeft,
+        overlayTop
       );
     }
 
