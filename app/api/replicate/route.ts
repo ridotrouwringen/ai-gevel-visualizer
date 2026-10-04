@@ -800,16 +800,17 @@ export async function POST(req: Request) {
         );
 
         overlayRgb = Buffer.alloc(warped.width * warped.height * 3);
-        overlayAlpha = warped.rgba;
+        overlayAlpha = Buffer.alloc(warped.width * warped.height);
         overlayWidth = warped.width;
         overlayHeight = warped.height;
         overlayLeft = item.bounds.left + warped.offsetX;
         overlayTop = item.bounds.top + warped.offsetY;
 
-        for (let i = 0, p = 0; i < warped.rgba.length; i += 4, p += 3) {
+        for (let i = 0, p = 0, pixel = 0; i < warped.rgba.length; i += 4, p += 3, pixel++) {
           overlayRgb[p] = warped.rgba[i];
           overlayRgb[p + 1] = warped.rgba[i + 1];
           overlayRgb[p + 2] = warped.rgba[i + 2];
+          overlayAlpha[pixel] = warped.rgba[i + 3];
         }
       } else {
         overlayRgb = baseRgbProduct;
