@@ -41,7 +41,7 @@ function colorLabel(id: SystemColor | FabricColor | undefined) {
   return color ? `${color.label} (${color.hex})` : id;
 }
 
-function productPrompt(selection: Selection, additionalReferenceCount = 0, hasGeometryGuide = false) {
+function productPrompt(selection: Selection, additionalReferenceCount = 0) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
@@ -563,18 +563,12 @@ export async function POST(req: Request) {
       GENERATION_CONCURRENCY,
       async (prepared, index) => {
         const isRolluik = prepared.selection.productType === "ROLLUIKEN";
-        const geometryGuide = isRolluik
-          ? await makeGeometryGuide(
-              prepared.maskRaw,
-              width,
-              height,
-              prepared.bounds,
-              prepared.selection.productType
-            )
-          : null;
+        // IMPORTANT: do not send a synthetic geometry drawing to Nano Banana.
+        // It is not a product photograph and the image model can interpret its
+        // grey fill/crosshair as part of the roller shutter itself. The four
+        // selected points remain the authoritative geometry in our own code.
         const referenceBuffers = [
           prepared.referenceBuffer,
-          ...(geometryGuide ? [geometryGuide] : []),
           ...(isRolluik ? extraRolluikReferences : []),
         ];
         const generatedUrl = await runProductEdit(
