@@ -425,7 +425,8 @@ type PreparedSelection = {
 };
 
 type GeneratedSelection = PreparedSelection & {
-  generatedUrl: string;
+  generatedUrl?: string;
+  generatedBuffer?: Buffer;
 };
 
 async function prepareSelection(
@@ -563,20 +564,23 @@ export async function POST(req: Request) {
       GENERATION_CONCURRENCY,
       async (prepared, index) => {
         const isRolluik = prepared.selection.productType === "ROLLUIKEN";
-        // IMPORTANT: do not send a synthetic geometry drawing to Nano Banana.
-        // It is not a product photograph and the image model can interpret its
-        // grey fill/crosshair as part of the roller shutter itself. The four
-        // selected points remain the authoritative geometry in our own code.
-        const referenceBuffers = [
-          prepared.referenceBuffer,
-          ...(isRolluik ? extraRolluikReferences : []),
-        ];
+
+        // ROLLUIKEN: bypass image generation completely for this stabilization
+        // test. The supplied system asset is the authoritative product. AI was
+        // producing the grey/raster-like result, so it must not participate in
+        // roller-shutter placement at all. The user's four points remain the
+        // authoritative geometry in our own code.
+        if (isRolluik) {
+          generated[index] = {
+            ...prepared,
+            generatedBuffer: prepared.referenceBuffer,
+          };
+          return;
+        }
+
         const generatedUrl = await runProductEdit(
-          referenceBuffers,
-          productPrompt(
-            prepared.selection,
-            isRolluik ? extraRolluikReferences.length : 0
-          ),
+          [prepared.referenceBuffer],
+          productPrompt(prepared.selection),
           apiKey
         );
 
@@ -595,26 +599,37 @@ export async function POST(req: Request) {
         throw new Error("Een AI-generatie ontbreekt in de resultaten.");
       }
 
-      const generatedResponse = await fetch(item.generatedUrl);
-      if (!generatedResponse.ok) {
-        throw new Error(
-          `Het AI-resultaat kon niet worden opgehaald (HTTP ${generatedResponse.status}).`
-        );
-      }
+      const generatedBuffer = item.generatedBuffer ?? (() => {
+        if (!item.generatedUrl) {
+          throw new Error("Geen productasset of AI-resultaat beschikbaar.");
+        }
+        return fetch(item.generatedUrl).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(
+              `Het AI-resultaat kon niet worden opgehaald (HTTP ${response.status}).`
+            );
+          }
+          return Buffer.from(await response.arrayBuffer());
+        });
+      })();
 
-      const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
+      const resolvedGeneratedBuffer = generatedBuffer instanceof Promise
+        ? await generatedBuffer
+        : generatedBuffer;
       const localWidth = item.bounds.right - item.bounds.left;
       const localHeight = item.bounds.bottom - item.bounds.top;
 
       // Remove the AI canvas/background first, then find the actual product
       // content. The product itself must fill the complete selected rectangle;
       // otherwise a visually correct width can still leave empty height.
-      const source = await sharp(generatedBuffer)
+      const isDirectRolluik = item.selection.productType === "ROLLUIKEN" && Boolean(item.generatedBuffer);
+
+      const source = await sharp(resolvedGeneratedBuffer)
         .trim({
           background: { r: 255, g: 255, b: 255 },
-          threshold: 25,
+          threshold: isDirectRolluik ? 12 : 25,
         })
-        .removeAlpha()
+        .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
 
@@ -625,10 +640,12 @@ export async function POST(req: Request) {
 
       for (let y = 0; y < source.info.height; y++) {
         for (let x = 0; x < source.info.width; x++) {
-          const p = (y * source.info.width + x) * 3;
+          const p = (y * source.info.width + x) * 4;
           const r = source.data[p];
           const g = source.data[p + 1];
           const b = source.data[p + 2];
+          const a = source.data[p + 3];
+          if (a < 8) continue;
           const distance = 255 - Math.min(r, g, b);
           if (distance > 18) {
             contentLeft = Math.min(contentLeft, x);
@@ -650,7 +667,7 @@ export async function POST(req: Request) {
         raw: {
           width: source.info.width,
           height: source.info.height,
-          channels: 3,
+          channels: 4,
         },
       })
         .extract({
@@ -659,7 +676,7 @@ export async function POST(req: Request) {
           width: contentWidth,
           height: contentHeight,
         })
-        .png()
+.png()
         .toBuffer();
 
       // Fit the isolated product to the full selected area for this test.
@@ -671,38 +688,40 @@ export async function POST(req: Request) {
       const resized = await sharp(productCrop)
         .resize(localWidth, localHeight, {
           fit: "fill",
-          background: { r: 255, g: 255, b: 255 },
+          background: { r: 255, g: 255, b: 255, alpha: 0 },
           position: "centre",
         })
-        .removeAlpha()
+        .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
 
       const alpha = Buffer.alloc(localWidth * localHeight);
-      for (let p = 0, i = 0; p < resized.data.length; p += 3, i++) {
+      for (let p = 0, i = 0; p < resized.data.length; p += 4, i++) {
         const r = resized.data[p];
         const g = resized.data[p + 1];
         const b = resized.data[p + 2];
+        const a = resized.data[p + 3];
         const whiteness = Math.min(r, g, b);
         const maxChannel = Math.max(r, g, b);
         const distance = 255 - whiteness;
+        const whiteCut = isDirectRolluik ? 18 : 10;
+        const whiteFade = isDirectRolluik ? 42 : 35;
 
-        if (distance <= 10 && maxChannel >= 245) {
+        if (a < 8 || (distance <= whiteCut && maxChannel >= 245)) {
           alpha[i] = 0;
-        } else if (distance <= 35 && maxChannel >= 225) {
-          alpha[i] = Math.round(((distance - 10) / 25) * 255);
+        } else if (distance <= whiteFade && maxChannel >= 225) {
+          alpha[i] = Math.min(a, Math.round(((distance - whiteCut) / (whiteFade - whiteCut)) * 255));
         } else {
-          alpha[i] = 255;
+          alpha[i] = a;
         }
       }
 
-      const baseRgbProduct = await sharp(resized.data, {
-        raw: {
-          width: resized.info.width,
-          height: resized.info.height,
-          channels: 3,
-        },
-      }).raw().toBuffer();
+      const baseRgbProduct = Buffer.alloc(localWidth * localHeight * 3);
+      for (let i = 0, p = 0, q = 0; i < alpha.length; i++, p += 4, q += 3) {
+        baseRgbProduct[q] = resized.data[p];
+        baseRgbProduct[q + 1] = resized.data[p + 1];
+        baseRgbProduct[q + 2] = resized.data[p + 2];
+      }
 
       const canPerspectiveWarp =
         item.selection.productType !== "KNIKARMSCHERMEN" &&
