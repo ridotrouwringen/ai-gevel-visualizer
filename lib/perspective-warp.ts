@@ -1,5 +1,13 @@
 export type PerspectivePoint = { x: number; y: number };
 
+export function normalizePerspectiveQuad(points: PerspectivePoint[]): PerspectivePoint[] {
+  if (points.length !== 4) throw new Error("Een perspectiefselectie vereist precies vier punten.");
+  const sorted = [...points].sort((a, b) => a.y - b.y || a.x - b.x);
+  const top = sorted.slice(0, 2).sort((a, b) => a.x - b.x);
+  const bottom = sorted.slice(2, 4).sort((a, b) => a.x - b.x);
+  return [top[0], top[1], bottom[1], bottom[0]];
+}
+
 type Homography = [number, number, number, number, number, number, number, number, number];
 
 function solveLinearSystem(matrix: number[][], values: number[]): number[] {
