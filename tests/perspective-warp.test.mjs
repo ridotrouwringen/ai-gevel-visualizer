@@ -50,3 +50,19 @@ test("perspective warp maps a rectangle into a slanted facade quad", () => {
   const center = ((Math.floor(result.height / 2) * result.width) + Math.floor(result.width / 2)) * 4;
   assert.equal(result.rgba[center + 3] > 0, true);
 });
+
+
+test("normalizes arbitrary corner click order", async () => {
+  const { normalizePerspectiveQuad } = await import("../.test-build/perspective-warp.js");
+  assert.deepEqual(normalizePerspectiveQuad([
+    { x: 1, y: 15 },
+    { x: 18, y: 4 },
+    { x: 2, y: 1 },
+    { x: 16, y: 18 },
+  ]), [
+    { x: 2, y: 1 },
+    { x: 18, y: 4 },
+    { x: 16, y: 18 },
+    { x: 1, y: 15 },
+  ]);
+});
