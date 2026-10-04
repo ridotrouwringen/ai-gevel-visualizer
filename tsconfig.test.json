@@ -9,5 +9,6 @@
     "incremental": false
   },
   "include": ["lib/image-composite.ts", "lib/masks.ts", "lib/replicate-validation.ts", "lib/rolluik-geometry.ts",
+    "lib/perspective-warp.ts",
     "lib/roboflow-predictions.ts", "types/visualizer.ts"]
 }
