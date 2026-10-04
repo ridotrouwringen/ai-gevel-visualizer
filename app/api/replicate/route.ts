@@ -747,31 +747,43 @@ export async function POST(req: Request) {
       // Normalize the isolated AI product to the selection bounding box first.
       // The four user-selected corners are then used as the authoritative
       // perspective geometry; the AI is never asked to invent that geometry.
-      const resized = await sharp(productCrop)
-        .resize(localWidth, localHeight, {
-          fit: "fill",
-          background: { r: 255, g: 255, b: 255, alpha: 0 },
-          position: "centre",
-        })
-        .ensureAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
+      // For the direct roller-shutter asset, keep the cropped source at its
+      // native resolution until the perspective warp. Resizing it to the
+      // rectangular mask bounds first introduced a second geometry/resampling
+      // step and could make the visible product sit inside, rather than exactly
+      // on, the four user-selected corners.
+      const productPixels = isDirectRolluik
+        ? await sharp(productCrop)
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true })
+        : await sharp(productCrop)
+            .resize(localWidth, localHeight, {
+              fit: "fill",
+              background: { r: 255, g: 255, b: 255, alpha: 0 },
+              position: "centre",
+            })
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
 
+      const productWidth = productPixels.info.width;
+      const productHeight = productPixels.info.height;
       const alpha = isDirectRolluik
         ? makeEdgeConnectedBackgroundAlphaRgba(
-            resized.data,
-            resized.info.width,
-            resized.info.height
+            productPixels.data,
+            productWidth,
+            productHeight
           )
         : Buffer.from(
-            Array.from({ length: localWidth * localHeight }, (_, i) => resized.data[i * 4 + 3])
+            Array.from({ length: productWidth * productHeight }, (_, i) => productPixels.data[i * 4 + 3])
           );
 
-      const baseRgbProduct = Buffer.alloc(localWidth * localHeight * 3);
+      const baseRgbProduct = Buffer.alloc(productWidth * productHeight * 3);
       for (let i = 0, p = 0, q = 0; i < alpha.length; i++, p += 4, q += 3) {
-        baseRgbProduct[q] = resized.data[p];
-        baseRgbProduct[q + 1] = resized.data[p + 1];
-        baseRgbProduct[q + 2] = resized.data[p + 2];
+        baseRgbProduct[q] = productPixels.data[p];
+        baseRgbProduct[q + 1] = productPixels.data[p + 1];
+        baseRgbProduct[q + 2] = productPixels.data[p + 2];
       }
 
       const canPerspectiveWarp =
@@ -794,8 +806,8 @@ export async function POST(req: Request) {
         const warped = perspectiveWarpRgba(
           baseRgbProduct,
           alpha,
-          localWidth,
-          localHeight,
+          productWidth,
+          productHeight,
           quad
         );
 
@@ -813,8 +825,27 @@ export async function POST(req: Request) {
           overlayAlpha[pixel] = warped.rgba[i + 3];
         }
       } else {
-        overlayRgb = baseRgbProduct;
-        overlayAlpha = alpha;
+        // Non-perspective products still need to match the rectangular bounds.
+        // Direct roller shutters always carry four corner coordinates, so this
+        // fallback remains for the existing generated-product paths.
+        if (productWidth === localWidth && productHeight === localHeight) {
+          overlayRgb = baseRgbProduct;
+          overlayAlpha = alpha;
+        } else {
+          const fallback = await sharp(productCrop)
+            .resize(localWidth, localHeight, { fit: "fill" })
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+          overlayRgb = Buffer.alloc(localWidth * localHeight * 3);
+          overlayAlpha = Buffer.alloc(localWidth * localHeight);
+          for (let i = 0, p = 0, q = 0; i < overlayAlpha.length; i++, p += 4, q += 3) {
+            overlayRgb[q] = fallback.data[p];
+            overlayRgb[q + 1] = fallback.data[p + 1];
+            overlayRgb[q + 2] = fallback.data[p + 2];
+            overlayAlpha[i] = fallback.data[p + 3];
+          }
+        }
       }
 
       // Intersect the transformed product with the exact user mask. This
