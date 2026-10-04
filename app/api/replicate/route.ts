@@ -575,8 +575,7 @@ export async function POST(req: Request) {
           referenceBuffers,
           productPrompt(
             prepared.selection,
-            isRolluik ? extraRolluikReferences.length : 0,
-            Boolean(geometryGuide)
+            isRolluik ? extraRolluikReferences.length : 0
           ),
           apiKey
         );
