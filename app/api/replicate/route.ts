@@ -41,7 +41,7 @@ function colorLabel(id: SystemColor | FabricColor | undefined) {
   return color ? `${color.label} (${color.hex})` : id;
 }
 
-function productPrompt(selection: Selection, additionalReferenceCount = 0) {
+function productPrompt(selection: Selection, additionalReferenceCount = 0, hasGeometryGuide = false) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
@@ -60,8 +60,15 @@ Generate one complete product straight-on, front-facing and axis-aligned, with s
 The product must have these four connected, recognizable components:
 - one compact horizontal roller cassette (rolbak) across the top;
 - one narrow vertical side guide (zijgeleider) on each side;
-- one fully CLOSED curtain (pantser) made of consistent horizontal slats, with no visible gap or exposed glass;
+- one fully CLOSED curtain (pantser) made ONLY of consistent HORIZONTAL slats, with no visible gap or exposed glass;
 - one clear, slim bottom rail (onderlijst) joining the two guides.
+
+CRITICAL PRODUCT IDENTITY RULES:
+- This MUST be a roller shutter (rolluik), not venetian blinds, shutters, a grille, mesh, insect screen, lattice, fence, or window blind.
+- The closed slats MUST run horizontally from left to right.
+- NEVER generate diagonal slats, diagonal stripes, cross-hatching, diamond patterns, mesh, or a woven texture.
+- Keep the cassette and both vertical guides clearly visible as physical roller-shutter components.
+- Do not turn the curtain into a featureless grey/black rectangle.
 
 Match the shape, finish and relative proportions visible in the supplied real product photographs. Do not impose guessed measurements or arbitrary percentages. Keep the cassette visually compact, both guides consistent in width, slats evenly spaced, and the bottom rail proportionate to the guides. The product must read as one technically coherent roller shutter, not a generic flat panel.
 Mounting context for the requested product: ${mounting}. Treat this as a construction cue only; keep the output isolated.
@@ -556,13 +563,27 @@ export async function POST(req: Request) {
       GENERATION_CONCURRENCY,
       async (prepared, index) => {
         const isRolluik = prepared.selection.productType === "ROLLUIKEN";
+        const geometryGuide = isRolluik
+          ? await makeGeometryGuide(
+              prepared.maskRaw,
+              width,
+              height,
+              prepared.bounds,
+              prepared.selection.productType
+            )
+          : null;
         const referenceBuffers = [
           prepared.referenceBuffer,
+          ...(geometryGuide ? [geometryGuide] : []),
           ...(isRolluik ? extraRolluikReferences : []),
         ];
         const generatedUrl = await runProductEdit(
           referenceBuffers,
-          productPrompt(prepared.selection, isRolluik ? extraRolluikReferences.length : 0),
+          productPrompt(
+            prepared.selection,
+            isRolluik ? extraRolluikReferences.length : 0,
+            Boolean(geometryGuide)
+          ),
           apiKey
         );
 
