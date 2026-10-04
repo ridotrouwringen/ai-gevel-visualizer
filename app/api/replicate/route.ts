@@ -222,6 +222,68 @@ function getOutputUrl(output: unknown): string {
   throw new Error("Replicate heeft geen geldige afbeeldings-URL teruggegeven.");
 }
 
+/**
+ * Build transparency without deleting light roller-shutter parts.
+ * If the source already has real transparency, preserve it. Otherwise remove
+ * only near-white background pixels that are connected to the image edge.
+ */
+function makeEdgeConnectedBackgroundAlphaRgba(
+  rgba: Buffer,
+  width: number,
+  height: number
+) {
+  const existingAlpha = Buffer.alloc(width * height);
+  let hasTransparency = false;
+  for (let i = 0, p = 3; i < existingAlpha.length; i++, p += 4) {
+    existingAlpha[i] = rgba[p];
+    if (rgba[p] < 250) hasTransparency = true;
+  }
+  if (hasTransparency) return existingAlpha;
+
+  const alpha = Buffer.alloc(width * height, 255);
+  const visited = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  let read = 0;
+  let write = 0;
+
+  const isBackground = (index: number) => {
+    const pixel = index * 4;
+    const r = rgba[pixel];
+    const g = rgba[pixel + 1];
+    const b = rgba[pixel + 2];
+    return Math.min(r, g, b) >= 225 &&
+      Math.max(r, g, b) - Math.min(r, g, b) <= 22;
+  };
+
+  const enqueue = (index: number) => {
+    if (visited[index] || !isBackground(index)) return;
+    visited[index] = 1;
+    queue[write++] = index;
+  };
+
+  for (let x = 0; x < width; x++) {
+    enqueue(x);
+    enqueue((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y++) {
+    enqueue(y * width);
+    enqueue(y * width + width - 1);
+  }
+
+  while (read < write) {
+    const index = queue[read++];
+    alpha[index] = 0;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    if (x > 0) enqueue(index - 1);
+    if (x + 1 < width) enqueue(index + 1);
+    if (y > 0) enqueue(index - width);
+    if (y + 1 < height) enqueue(index + width);
+  }
+
+  return alpha;
+}
+
 async function loadProductReference(productType: ProductType) {
   const files: Record<ProductType, string> = {
     ROLLUIKEN: "rolluik.png",
@@ -695,26 +757,15 @@ export async function POST(req: Request) {
         .raw()
         .toBuffer({ resolveWithObject: true });
 
-      const alpha = Buffer.alloc(localWidth * localHeight);
-      for (let p = 0, i = 0; p < resized.data.length; p += 4, i++) {
-        const r = resized.data[p];
-        const g = resized.data[p + 1];
-        const b = resized.data[p + 2];
-        const a = resized.data[p + 3];
-        const whiteness = Math.min(r, g, b);
-        const maxChannel = Math.max(r, g, b);
-        const distance = 255 - whiteness;
-        const whiteCut = isDirectRolluik ? 18 : 10;
-        const whiteFade = isDirectRolluik ? 42 : 35;
-
-        if (a < 8 || (distance <= whiteCut && maxChannel >= 245)) {
-          alpha[i] = 0;
-        } else if (distance <= whiteFade && maxChannel >= 225) {
-          alpha[i] = Math.min(a, Math.round(((distance - whiteCut) / (whiteFade - whiteCut)) * 255));
-        } else {
-          alpha[i] = a;
-        }
-      }
+      const alpha = isDirectRolluik
+        ? makeEdgeConnectedBackgroundAlphaRgba(
+            resized.data,
+            resized.info.width,
+            resized.info.height
+          )
+        : Buffer.from(
+            Array.from({ length: localWidth * localHeight }, (_, i) => resized.data[i * 4 + 3])
+          );
 
       const baseRgbProduct = Buffer.alloc(localWidth * localHeight * 3);
       for (let i = 0, p = 0, q = 0; i < alpha.length; i++, p += 4, q += 3) {
