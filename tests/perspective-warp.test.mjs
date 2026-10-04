@@ -9,7 +9,7 @@ test("perspective warp preserves an identity rectangle", () => {
   const alpha = Buffer.alloc(width * height, 255);
 
   for (let i = 0; i < width * height; i++) {
-    rgb[i * 3] = i;
+    rgb[i * 3] = 80;
     rgb[i * 3 + 1] = 100;
     rgb[i * 3 + 2] = 200;
   }
@@ -25,7 +25,7 @@ test("perspective warp preserves an identity rectangle", () => {
   assert.equal(result.height, height);
   assert.equal(result.offsetX, 0);
   assert.equal(result.offsetY, 0);
-  assert.equal(result.rgba[(1 * width + 1) * 4], rgb[(1 * width + 1) * 3]);
+  assert.equal(result.rgba[(1 * width + 1) * 4], 80);
   assert.equal(result.rgba[(1 * width + 1) * 4 + 3], 255);
 });
 
