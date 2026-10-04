@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { compositeGeneratedProduct } from "@/lib/image-composite";
-import { perspectiveWarpRgba } from "@/lib/perspective-warp";
+import { normalizePerspectiveQuad, perspectiveWarpRgba } from "@/lib/perspective-warp";
 import { buildLineMask, buildRasterMask, getSelectionBounds } from "@/lib/masks";
 import { generationInputError } from "@/lib/replicate-validation";
 import {
@@ -702,7 +702,7 @@ export async function POST(req: Request) {
       let overlayTop = item.bounds.top;
 
       if (canPerspectiveWarp) {
-        const quad = item.selection.coordinates.map((point) => ({
+        const quad = normalizePerspectiveQuad(item.selection.coordinates).map((point) => ({
           x: point.x * width - item.bounds.left,
           y: point.y * height - item.bounds.top,
         }));
