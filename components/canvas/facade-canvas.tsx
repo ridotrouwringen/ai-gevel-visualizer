@@ -2,7 +2,7 @@
 
 import { useRef, ChangeEvent, useEffect, useState, PointerEvent } from 'react';
 import { useVisualizerStore } from '@/store/visualizer-store';
-import { UploadCloud, Trash2, MousePointer2 } from 'lucide-react';
+import { UploadCloud, Trash2, Crosshair } from 'lucide-react';
 import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, ProductType, SystemColor, FabricColor } from '@/types/visualizer';
 
 const getColorHex = (id: SystemColor | FabricColor | null) => {
@@ -482,7 +482,7 @@ export function FacadeCanvas() {
       )}
 
       <div className="absolute top-4 left-4 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
-        <MousePointer2 size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
+        <Crosshair size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
         {segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
           ? "Sleep over de gewenste breedte van het knikarmscherm."
           : "Klik 4 punten op de vier hoeken van het kozijn."
