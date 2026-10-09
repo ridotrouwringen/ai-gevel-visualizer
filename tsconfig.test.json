@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".test-build",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "incremental": false
+  },
+  "include": ["lib/image-composite.ts", "lib/masks.ts", "lib/replicate-validation.ts", "lib/rolluik-geometry.ts",
+    "lib/perspective-warp.ts", "lib/rolluik-placement.ts", "lib/foreground-cache.ts", "store/visualizer-store.ts",
+    "lib/rolluik-colour.ts", "lib/roboflow-predictions.ts", "types/visualizer.ts"]
+}

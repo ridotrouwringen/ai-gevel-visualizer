@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import Replicate from "replicate";
+import { cachedForeground } from "@/lib/foreground-cache";
+import { rolluikProductFootprint, ROLLUIK_ASSET } from "@/lib/rolluik-placement";
+import { colourRolluikRgb } from "@/lib/rolluik-colour";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
+import { compositeGeneratedProduct } from "@/lib/image-composite";
+import { normalizePerspectiveQuad, perspectiveWarpRgba } from "@/lib/perspective-warp";
+import { buildLineMask, buildRasterMask, getSelectionBounds } from "@/lib/masks";
+import { generationInputError } from "@/lib/replicate-validation";
 import {
   SYSTEM_COLORS,
   ZIPSCREEN_FABRICS,
@@ -16,16 +23,15 @@ import {
 export const maxDuration = 120;
 const GENERATION_CONCURRENCY = 1;
 
-type RasterMask = NonNullable<MaskShape["rasterMasks"]>[number];
 type Selection = Pick<
   MaskShape,
-  "id" | "sequenceNumber" | "type" | "coordinates" | "rasterMasks" | "productType" | "systemColor" | "fabricColor"
+  "id" | "sequenceNumber" | "type" | "coordinates" | "rasterMasks" | "productType" | "systemColor" | "fabricColor" | "mountingMode"
 >;
 
 function dataUriToBuffer(dataUri: string) {
-  const match = dataUri.match(/^data:[^;]+;base64,(.+)$/s);
-  if (!match) throw new Error("De afbeelding moet een base64 data-URI zijn.");
-  return Buffer.from(match[1], "base64");
+  const commaIndex = dataUri.indexOf(",");
+  if (commaIndex < 0) throw new Error("De afbeelding moet een base64 data-URI zijn.");
+  return Buffer.from(dataUri.slice(commaIndex + 1), "base64");
 }
 
 function bufferToDataUri(buffer: Buffer, mime = "image/png") {
@@ -38,26 +44,41 @@ function colorLabel(id: SystemColor | FabricColor | undefined) {
   return color ? `${color.label} (${color.hex})` : id;
 }
 
-function productPrompt(selection: Selection) {
+function productPrompt(selection: Selection, additionalReferenceCount = 0) {
   const systemColor = colorLabel(selection.systemColor);
   const fabricColor = selection.fabricColor ? colorLabel(selection.fabricColor) : null;
 
   if (selection.productType === "ROLLUIKEN") {
-    return `Create ONE isolated, complete exterior aluminum roller shutter product asset using IMAGE 1 as the physical product reference.
+    const mounting = selection.mountingMode === "IN_DE_DAG" ? "in de dag, met de geleiders in de negge" : "op de dag, met de geleiders op de gevel";
+    const referenceNote = additionalReferenceCount > 0
+      ? `Images 2 through ${additionalReferenceCount + 1} are additional real product photographs supplied by the user. Use them only to understand the roller shutter's actual cassette, side guides, closed slats, bottom rail, finish and component proportions. They are photographs of installed products: do not reproduce their walls, windows, roofs, lighting, camera framing or surroundings.`
+      : "Use IMAGE 1 as the physical product reference. Do not invent extra construction details or unsupported dimensions.";
 
-This is NOT a facade editing task and NOT a window detection task.
-Do not show a house, window, wall, glass or architecture.
-Generate the product straight-on, perfectly rectangular, front-facing and axis-aligned.
+    return `Create ONE isolated, complete exterior aluminum roller shutter product asset.
 
-The product must consist of a horizontal top cassette across the full width and a fully CLOSED roller-shutter curtain with horizontal slats.
-Keep realistic component proportions based on IMAGE 1: the top cassette should be compact and approximately 11% of the complete product height (representing a typical cassette of about 16 cm on a normal window). The closed slat curtain should occupy the remaining approximately 89% of the product height. The bottom rail (onderlijst) must be slim: its height must be exactly equal to the width of one side guide (zijgeleider), not thicker or taller. Keep the slats narrow, evenly spaced, and consistent with the physical reference.
-The four outer product edges must be straight and parallel.
-Do not tilt, rotate, skew or perspective-distort the product.
+IMAGE 1 is the existing isolated roller-shutter product reference. ${referenceNote}
+This is NOT a facade editing task and NOT a window detection task. Do not show a house, window, wall, glass or architecture.
+Generate one complete product straight-on, front-facing and axis-aligned, with straight parallel outer edges.
+
+The product must have these four connected, recognizable components:
+- one compact horizontal roller cassette (rolbak) across the top;
+- one narrow vertical side guide (zijgeleider) on each side;
+- one fully CLOSED curtain (pantser) made ONLY of consistent HORIZONTAL slats, with no visible gap or exposed glass;
+- one clear, slim bottom rail (onderlijst) joining the two guides.
+
+CRITICAL PRODUCT IDENTITY RULES:
+- This MUST be a roller shutter (rolluik), not venetian blinds, shutters, a grille, mesh, insect screen, lattice, fence, or window blind.
+- The closed slats MUST run horizontally from left to right.
+- NEVER generate diagonal slats, diagonal stripes, cross-hatching, diamond patterns, mesh, or a woven texture.
+- Keep the cassette and both vertical guides clearly visible as physical roller-shutter components.
+- Do not turn the curtain into a featureless grey/black rectangle.
+
+Match the shape, finish and relative proportions visible in the supplied real product photographs. Do not impose guessed measurements or arbitrary percentages. Keep the cassette visually compact, both guides consistent in width, slats evenly spaced, and the bottom rail proportionate to the guides. The product must read as one technically coherent roller shutter, not a generic flat panel.
+Mounting context for the requested product: ${mounting}. Treat this as a construction cue only; keep the output isolated.
 The complete product must fill almost the entire image canvas, with only a small pure-white margin around it.
 System color: ${systemColor}.
 
-Use IMAGE 1 only to copy the real product construction and appearance. Do not copy its background or scene.
-The final asset must be a single complete rolluik, not multiple products.`;
+Use the photographs to reproduce the real product construction and appearance, not their surroundings. The final asset must be one single, complete, fully closed roller shutter, not multiple products.`;
   }
 
   if (selection.productType === "ZIPSCREENS") {
@@ -90,39 +111,6 @@ Use IMAGE 1 only to copy the real product construction, proportions and appearan
 The final asset must be a single complete awning on a pure-white background.`;
 }
 
-function buildLineMask(width: number, height: number, coordinates: { x: number; y: number }[]) {
-  const start = coordinates[0], end = coordinates[1];
-  const left = Math.max(0, Math.min(start.x, end.x));
-  const right = Math.min(1, Math.max(start.x, end.x));
-  const top = Math.max(0, Math.min(start.y, end.y));
-  const bottom = Math.min(1, top + 0.20);
-  const x0 = Math.floor(left * width), x1 = Math.ceil(right * width);
-  const y0 = Math.floor(top * height), y1 = Math.ceil(bottom * height);
-  const data = Buffer.alloc(width * height);
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) data[y * width + x] = 255;
-  }
-  return data;
-}
-
-function buildRasterMask(width: number, height: number, masks: RasterMask[]) {
-  const data = Buffer.alloc(width * height);
-  for (const mask of masks) {
-    for (let y = 0; y < mask.height; y++) {
-      const targetY = mask.offsetY + y;
-      if (targetY < 0 || targetY >= height) continue;
-      for (let x = 0; x < mask.width; x++) {
-        const targetX = mask.offsetX + x;
-        if (targetX < 0 || targetX >= width) continue;
-        if (Number(mask.data[y * mask.width + x] ?? 0) > 0) {
-          data[targetY * width + targetX] = 255;
-        }
-      }
-    }
-  }
-  return data;
-}
-
 async function makeMask(width: number, height: number, selection: Selection) {
   const raw =
     selection.type === "LINE"
@@ -134,31 +122,6 @@ async function makeMask(width: number, height: number, selection: Selection) {
   }).png().toBuffer();
 
   return { raw, png };
-}
-
-function getSelectionBounds(maskRaw: Buffer, width: number, height: number) {
-  let left = width;
-  let top = height;
-  let right = -1;
-  let bottom = -1;
-
-  for (let y = 0; y < height; y++) {
-    const rowOffset = y * width;
-    for (let x = 0; x < width; x++) {
-      if (maskRaw[rowOffset + x] > 0) {
-        if (x < left) left = x;
-        if (x > right) right = x;
-        if (y < top) top = y;
-        if (y > bottom) bottom = y;
-      }
-    }
-  }
-
-  if (right < left || bottom < top) {
-    throw new Error("De geselecteerde mask bevat geen actieve pixels.");
-  }
-
-  return { left, top, right: right + 1, bottom: bottom + 1 };
 }
 
 async function makeGeometryGuide(
@@ -262,6 +225,68 @@ function getOutputUrl(output: unknown): string {
   throw new Error("Replicate heeft geen geldige afbeeldings-URL teruggegeven.");
 }
 
+/**
+ * Build transparency without deleting light roller-shutter parts.
+ * If the source already has real transparency, preserve it. Otherwise remove
+ * only near-white background pixels that are connected to the image edge.
+ */
+function makeEdgeConnectedBackgroundAlphaRgba(
+  rgba: Buffer,
+  width: number,
+  height: number
+) {
+  const existingAlpha = Buffer.alloc(width * height);
+  let hasTransparency = false;
+  for (let i = 0, p = 3; i < existingAlpha.length; i++, p += 4) {
+    existingAlpha[i] = rgba[p];
+    if (rgba[p] < 250) hasTransparency = true;
+  }
+  if (hasTransparency) return existingAlpha;
+
+  const alpha = Buffer.alloc(width * height, 255);
+  const visited = new Uint8Array(width * height);
+  const queue = new Int32Array(width * height);
+  let read = 0;
+  let write = 0;
+
+  const isBackground = (index: number) => {
+    const pixel = index * 4;
+    const r = rgba[pixel];
+    const g = rgba[pixel + 1];
+    const b = rgba[pixel + 2];
+    return Math.min(r, g, b) >= 225 &&
+      Math.max(r, g, b) - Math.min(r, g, b) <= 22;
+  };
+
+  const enqueue = (index: number) => {
+    if (visited[index] || !isBackground(index)) return;
+    visited[index] = 1;
+    queue[write++] = index;
+  };
+
+  for (let x = 0; x < width; x++) {
+    enqueue(x);
+    enqueue((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y++) {
+    enqueue(y * width);
+    enqueue(y * width + width - 1);
+  }
+
+  while (read < write) {
+    const index = queue[read++];
+    alpha[index] = 0;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    if (x > 0) enqueue(index - 1);
+    if (x + 1 < width) enqueue(index + 1);
+    if (y > 0) enqueue(index - width);
+    if (y + 1 < height) enqueue(index + width);
+  }
+
+  return alpha;
+}
+
 async function loadProductReference(productType: ProductType) {
   const files: Record<ProductType, string> = {
     ROLLUIKEN: "rolluik.png",
@@ -274,14 +299,24 @@ async function loadProductReference(productType: ProductType) {
 }
 
 async function runProductEdit(
-  productReference: Buffer,
+  productReferences: Buffer[],
   prompt: string,
   apiKey: string
 ) {
   const replicate = new Replicate({ auth: apiKey });
 
+  // Replicate's image_input expects image URLs or base64 data URIs,
+  // not raw Node.js Buffers. Normalize every reference to PNG data URI.
+  const referenceDataUris = await Promise.all(
+    productReferences.map(async (reference) =>
+      bufferToDataUri(await sharp(reference).png().toBuffer(), "image/png")
+    )
+  );
+
   console.log("Nano Banana starten", {
-    referenceBytes: productReference.length,
+    referenceBytes: productReferences.map((reference) => reference.length),
+    referenceCount: referenceDataUris.length,
+    referenceFormats: referenceDataUris.map((reference) => reference.slice(0, 22)),
     prompt,
   });
 
@@ -289,7 +324,7 @@ async function runProductEdit(
     const output = await replicate.run("google/nano-banana", {
       input: {
         prompt,
-        image_input: [productReference],
+        image_input: referenceDataUris,
         aspect_ratio: "match_input_image",
         output_format: "png",
       },
@@ -455,7 +490,8 @@ type PreparedSelection = {
 };
 
 type GeneratedSelection = PreparedSelection & {
-  generatedUrl: string;
+  generatedUrl?: string;
+  generatedBuffer?: Buffer;
 };
 
 async function prepareSelection(
@@ -501,6 +537,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const image = body?.image;
     const selections = body?.selections as Selection[] | undefined;
+    const productReferenceImages = body?.productReferenceImages;
 
     if (typeof image !== "string" || !Array.isArray(selections) || selections.length === 0) {
       return NextResponse.json(
@@ -510,24 +547,41 @@ export async function POST(req: Request) {
     }
 
     const apiKey = process.env.REPLICATE_API_TOKEN;
-    if (!apiKey) {
+    if (!apiKey && selections.some(selection => selection?.productType !== "ROLLUIKEN")) {
       return NextResponse.json(
         { error: "Replicate API Key ontbreekt in de Vercel kluis." },
         { status: 500 }
       );
     }
 
-    const invalid = selections.find((selection) => {
-      if (!selection.productType || !selection.systemColor) return true;
-      if (selection.type === "LINE") return selection.coordinates?.length !== 2;
-      return !Array.isArray(selection.rasterMasks) || selection.rasterMasks.length === 0;
-    });
-
-    if (invalid) {
+    if (productReferenceImages !== undefined && (
+      !Array.isArray(productReferenceImages) ||
+      productReferenceImages.length > 3 ||
+      productReferenceImages.some((value) =>
+        typeof value !== "string" ||
+        !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(value) ||
+        value.length > 700_000
+      )
+    )) {
       return NextResponse.json(
-        { error: "Een of meer selecties bevatten geen geldige montagegeometrie." },
+        { error: "Voeg maximaal 3 productreferenties toe (JPEG, PNG of WebP, maximaal 500 KB per foto)." },
         { status: 400 }
       );
+    }
+
+    const extraRolluikReferences = Array.isArray(productReferenceImages)
+      ? productReferenceImages.map(dataUriToBuffer)
+      : [];
+
+    const validationError = generationInputError(image, selections);
+    const validSelections = selections.filter((selection): selection is Selection => {
+      if (!selection || !selection.productType || !selection.systemColor) return false;
+      if (selection.type === "LINE") return selection.coordinates?.length === 2;
+      return Array.isArray(selection.rasterMasks) && selection.rasterMasks.length > 0;
+    });
+
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
     const originalBuffer = dataUriToBuffer(image);
@@ -553,16 +607,16 @@ export async function POST(req: Request) {
     });
 
     const preparedSelections = await Promise.all(
-      selections.map((selection) =>
+      validSelections.map((selection) =>
         prepareSelection(originalBuffer, width, height, selection)
       )
     );
 
     // Detect a possible foreground lamp in parallel with product generation.
     // If detection fails, keep the existing composite unchanged.
-    const hasRollerShutter = selections.some((selection) => selection.productType === "ROLLUIKEN");
+    const hasRollerShutter = validSelections.some((selection) => selection.productType === "ROLLUIKEN");
     const foregroundMaskPromise = hasRollerShutter
-      ? detectForegroundLamp(image, apiKey, width, height).catch((error) => {
+      && apiKey ? cachedForeground(image, () => detectForegroundLamp(image, apiKey, width, height)).catch((error) => {
           console.warn("Voorgrondherkenning overgeslagen:", error);
           return null;
         })
@@ -574,10 +628,25 @@ export async function POST(req: Request) {
       preparedSelections,
       GENERATION_CONCURRENCY,
       async (prepared, index) => {
+        const isRolluik = prepared.selection.productType === "ROLLUIKEN";
+
+        // ROLLUIKEN: bypass image generation completely for this stabilization
+        // test. The supplied system asset is the authoritative product. AI was
+        // producing the grey/raster-like result, so it must not participate in
+        // roller-shutter placement at all. The user's four points remain the
+        // authoritative geometry in our own code.
+        if (isRolluik) {
+          generated[index] = {
+            ...prepared,
+            generatedBuffer: prepared.referenceBuffer,
+          };
+          return;
+        }
+
         const generatedUrl = await runProductEdit(
-          prepared.referenceBuffer,
+          [prepared.referenceBuffer],
           productPrompt(prepared.selection),
-          apiKey
+          apiKey!
         );
 
         generated[index] = {
@@ -587,7 +656,7 @@ export async function POST(req: Request) {
       }
     );
 
-    let currentBuffer = originalBuffer;
+    let currentBuffer: Buffer = originalBuffer;
 
     for (let index = 0; index < generated.length; index++) {
       const item = generated[index];
@@ -595,26 +664,37 @@ export async function POST(req: Request) {
         throw new Error("Een AI-generatie ontbreekt in de resultaten.");
       }
 
-      const generatedResponse = await fetch(item.generatedUrl);
-      if (!generatedResponse.ok) {
-        throw new Error(
-          `Het AI-resultaat kon niet worden opgehaald (HTTP ${generatedResponse.status}).`
-        );
-      }
+      const generatedBuffer = item.generatedBuffer ?? (() => {
+        if (!item.generatedUrl) {
+          throw new Error("Geen productasset of AI-resultaat beschikbaar.");
+        }
+        return fetch(item.generatedUrl).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(
+              `Het AI-resultaat kon niet worden opgehaald (HTTP ${response.status}).`
+            );
+          }
+          return Buffer.from(await response.arrayBuffer());
+        });
+      })();
 
-      const generatedBuffer = Buffer.from(await generatedResponse.arrayBuffer());
+      const resolvedGeneratedBuffer = generatedBuffer instanceof Promise
+        ? await generatedBuffer
+        : generatedBuffer;
       const localWidth = item.bounds.right - item.bounds.left;
       const localHeight = item.bounds.bottom - item.bounds.top;
 
       // Remove the AI canvas/background first, then find the actual product
       // content. The product itself must fill the complete selected rectangle;
       // otherwise a visually correct width can still leave empty height.
-      const source = await sharp(generatedBuffer)
+      const isDirectRolluik = item.selection.productType === "ROLLUIKEN" && Boolean(item.generatedBuffer);
+
+      const source = await sharp(resolvedGeneratedBuffer)
         .trim({
           background: { r: 255, g: 255, b: 255 },
-          threshold: 25,
+          threshold: isDirectRolluik ? 12 : 25,
         })
-        .removeAlpha()
+        .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
 
@@ -625,10 +705,12 @@ export async function POST(req: Request) {
 
       for (let y = 0; y < source.info.height; y++) {
         for (let x = 0; x < source.info.width; x++) {
-          const p = (y * source.info.width + x) * 3;
+          const p = (y * source.info.width + x) * 4;
           const r = source.data[p];
           const g = source.data[p + 1];
           const b = source.data[p + 2];
+          const a = source.data[p + 3];
+          if (a < 8) continue;
           const distance = 255 - Math.min(r, g, b);
           if (distance > 18) {
             contentLeft = Math.min(contentLeft, x);
@@ -650,7 +732,7 @@ export async function POST(req: Request) {
         raw: {
           width: source.info.width,
           height: source.info.height,
-          channels: 3,
+          channels: 4,
         },
       })
         .extract({
@@ -659,83 +741,156 @@ export async function POST(req: Request) {
           width: contentWidth,
           height: contentHeight,
         })
-        .png()
+.png()
         .toBuffer();
 
       // Fit the isolated product to the full selected area for this test.
       // The contain experiment left roller shutters too narrow; physical
       // proportions will need to be handled with product geometry/scale later.
-      const resized = await sharp(productCrop)
-        .resize(localWidth, localHeight, {
-          fit: "fill",
-          background: { r: 255, g: 255, b: 255 },
-          position: "centre",
-        })
-        .removeAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
+      // Normalize the isolated AI product to the selection bounding box first.
+      // The four user-selected corners are then used as the authoritative
+      // perspective geometry; the AI is never asked to invent that geometry.
+      // For the direct roller-shutter asset, keep the cropped source at its
+      // native resolution until the perspective warp. Resizing it to the
+      // rectangular mask bounds first introduced a second geometry/resampling
+      // step and could make the visible product sit inside, rather than exactly
+      // on, the four user-selected corners.
+      const productPixels = isDirectRolluik
+        ? await sharp(productCrop)
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true })
+        : await sharp(productCrop)
+            .resize(localWidth, localHeight, {
+              fit: "fill",
+              background: { r: 255, g: 255, b: 255, alpha: 0 },
+              position: "centre",
+            })
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
 
-      const alpha = Buffer.alloc(localWidth * localHeight);
-      for (let p = 0, i = 0; p < resized.data.length; p += 3, i++) {
-        const r = resized.data[p];
-        const g = resized.data[p + 1];
-        const b = resized.data[p + 2];
+      const productWidth = productPixels.info.width;
+      const productHeight = productPixels.info.height;
+      const alpha = isDirectRolluik
+        ? makeEdgeConnectedBackgroundAlphaRgba(
+            productPixels.data,
+            productWidth,
+            productHeight
+          )
+        : Buffer.from(
+            Array.from({ length: productWidth * productHeight }, (_, i) => productPixels.data[i * 4 + 3])
+          );
 
-        // Distance from white. Pure/near white background is transparent.
-        // Keep a small soft transition so product edges do not look cut out.
-        const whiteness = Math.min(r, g, b);
-        const maxChannel = Math.max(r, g, b);
-        const distance = 255 - whiteness;
+      let baseRgbProduct: Buffer = Buffer.alloc(productWidth * productHeight * 3);
+      for (let i = 0, p = 0, q = 0; i < alpha.length; i++, p += 4, q += 3) {
+        baseRgbProduct[q] = productPixels.data[p];
+        baseRgbProduct[q + 1] = productPixels.data[p + 1];
+        baseRgbProduct[q + 2] = productPixels.data[p + 2];
+      }
 
-        if (distance <= 10 && maxChannel >= 245) {
-          alpha[i] = 0;
-        } else if (distance <= 35 && maxChannel >= 225) {
-          alpha[i] = Math.round(((distance - 10) / 25) * 255);
+      if (isDirectRolluik) {
+        baseRgbProduct = colourRolluikRgb(baseRgbProduct, alpha, productWidth, productHeight, item.selection.systemColor);
+      }
+
+      const canPerspectiveWarp =
+        item.selection.productType !== "KNIKARMSCHERMEN" &&
+        item.selection.coordinates?.length === 4;
+
+      let overlayRgb: Buffer;
+      let overlayAlpha: Buffer;
+      let overlayWidth = localWidth;
+      let overlayHeight = localHeight;
+      let overlayLeft = item.bounds.left;
+      let overlayTop = item.bounds.top;
+
+      if (canPerspectiveWarp) {
+        const frameQuad = normalizePerspectiveQuad(item.selection.coordinates).map(point => ({
+          x: point.x * width, y: point.y * height,
+        }));
+        if (isDirectRolluik && (productWidth !== ROLLUIK_ASSET.width || productHeight !== ROLLUIK_ASSET.height)) {
+          throw new Error("De rolluikasset past niet bij de goedgekeurde montageankers.");
+        }
+        const productFootprint = isDirectRolluik
+          ? rolluikProductFootprint(frameQuad, item.selection.mountingMode ?? "OP_DE_DAG")
+          : frameQuad;
+        const quad = productFootprint.map(point => ({x:point.x-item.bounds.left,y:point.y-item.bounds.top}));
+
+        const warped = perspectiveWarpRgba(
+          baseRgbProduct,
+          alpha,
+          productWidth,
+          productHeight,
+          quad
+        );
+
+        overlayRgb = Buffer.alloc(warped.width * warped.height * 3);
+        overlayAlpha = Buffer.alloc(warped.width * warped.height);
+        overlayWidth = warped.width;
+        overlayHeight = warped.height;
+        overlayLeft = item.bounds.left + warped.offsetX;
+        overlayTop = item.bounds.top + warped.offsetY;
+
+        for (let i = 0, p = 0, pixel = 0; i < warped.rgba.length; i += 4, p += 3, pixel++) {
+          overlayRgb[p] = warped.rgba[i];
+          overlayRgb[p + 1] = warped.rgba[i + 1];
+          overlayRgb[p + 2] = warped.rgba[i + 2];
+          overlayAlpha[pixel] = warped.rgba[i + 3];
+        }
+      } else {
+        // Non-perspective products still need to match the rectangular bounds.
+        // Direct roller shutters always carry four corner coordinates, so this
+        // fallback remains for the existing generated-product paths.
+        if (productWidth === localWidth && productHeight === localHeight) {
+          overlayRgb = baseRgbProduct;
+          overlayAlpha = alpha;
         } else {
-          alpha[i] = 255;
+          const fallback = await sharp(productCrop)
+            .resize(localWidth, localHeight, { fit: "fill" })
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+          overlayRgb = Buffer.alloc(localWidth * localHeight * 3);
+          overlayAlpha = Buffer.alloc(localWidth * localHeight);
+          for (let i = 0, p = 0, q = 0; i < overlayAlpha.length; i++, p += 4, q += 3) {
+            overlayRgb[q] = fallback.data[p];
+            overlayRgb[q + 1] = fallback.data[p + 1];
+            overlayRgb[q + 2] = fallback.data[p + 2];
+            overlayAlpha[i] = fallback.data[p + 3];
+          }
         }
       }
 
-      const localMaskRaw = Buffer.alloc(localWidth * localHeight);
-      for (let y = item.bounds.top; y < item.bounds.bottom; y++) {
-        const sourceStart = y * width + item.bounds.left;
-        const sourceEnd = sourceStart + localWidth;
-        const targetStart = (y - item.bounds.top) * localWidth;
-        item.maskRaw.copy(localMaskRaw, targetStart, sourceStart, sourceEnd);
+      // OP DE DAG uses the projected product silhouette, not the frame mask.
+      // Preserve the actual visible coverage for foreground restoration as well.
+      const expandsFrame = isDirectRolluik && item.selection.mountingMode !== "IN_DE_DAG";
+      const productCoverage = isDirectRolluik ? Buffer.alloc(width * height) : null;
+      const combinedAlpha = Buffer.alloc(overlayWidth * overlayHeight);
+      for (let y = 0; y < overlayHeight; y++) {
+        const globalY = overlayTop + y;
+        if (globalY < 0 || globalY >= height) continue;
+        for (let x = 0; x < overlayWidth; x++) {
+          const globalX = overlayLeft + x;
+          if (globalX < 0 || globalX >= width) continue;
+          const alphaIndex = y * overlayWidth + x;
+          const maskIndex = globalY * width + globalX;
+          combinedAlpha[alphaIndex] = Math.round(
+            (overlayAlpha[alphaIndex] * (expandsFrame ? 255 : item.maskRaw[maskIndex])) / 255
+          );
+          if (productCoverage && combinedAlpha[alphaIndex] > 0) productCoverage[maskIndex] = 255;
+        }
       }
+      if (productCoverage) item.maskRaw = productCoverage;
 
-      // Combine the AI product alpha with the exact user-selection mask.
-      // Do this as one RGBA image: the selection mask must limit the overlay,
-      // while the white-background removal keeps the facade visible around the product.
-      const combinedAlpha = Buffer.alloc(localWidth * localHeight);
-      for (let i = 0; i < combinedAlpha.length; i++) {
-        combinedAlpha[i] = Math.round((alpha[i] * localMaskRaw[i]) / 255);
-      }
-
-      const finalOverlay = await sharp(resized.data, {
-        raw: {
-          width: resized.info.width,
-          height: resized.info.height,
-          channels: 3,
-        },
-      })
-        .joinChannel(combinedAlpha, {
-          raw: { width: localWidth, height: localHeight, channels: 1 },
-        })
-        .png()
-        .toBuffer();
-
-      currentBuffer = await sharp(currentBuffer)
-        .composite([
-          {
-            input: finalOverlay,
-            left: item.bounds.left,
-            top: item.bounds.top,
-            blend: "over",
-          },
-        ])
-        .png()
-        .toBuffer();
+      currentBuffer = await compositeGeneratedProduct(
+        currentBuffer,
+        overlayRgb,
+        combinedAlpha,
+        overlayWidth,
+        overlayHeight,
+        overlayLeft,
+        overlayTop
+      );
     }
 
     // Restore original pixels of detected foreground objects only where they
@@ -779,7 +934,7 @@ export async function POST(req: Request) {
       success: true,
       imageUrl: bufferToDataUri(currentBuffer, "image/png"),
       model: "google/nano-banana",
-      selectionCount: selections.length,
+      selectionCount: validSelections.length,
       results,
       message: "Product gegenereerd als geïsoleerde asset en exact in de selectie geplaatst.",
     });
