@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import Replicate from "replicate";
+import { cachedForeground } from "@/lib/foreground-cache";
+import { rolluikProductFootprint, ROLLUIK_ASSET } from "@/lib/rolluik-placement";
+import { colourRolluikRgb } from "@/lib/rolluik-colour";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
@@ -544,7 +547,7 @@ export async function POST(req: Request) {
     }
 
     const apiKey = process.env.REPLICATE_API_TOKEN;
-    if (!apiKey) {
+    if (!apiKey && selections.some(selection => selection?.productType !== "ROLLUIKEN")) {
       return NextResponse.json(
         { error: "Replicate API Key ontbreekt in de Vercel kluis." },
         { status: 500 }
@@ -613,7 +616,7 @@ export async function POST(req: Request) {
     // If detection fails, keep the existing composite unchanged.
     const hasRollerShutter = validSelections.some((selection) => selection.productType === "ROLLUIKEN");
     const foregroundMaskPromise = hasRollerShutter
-      ? detectForegroundLamp(image, apiKey, width, height).catch((error) => {
+      && apiKey ? cachedForeground(image, () => detectForegroundLamp(image, apiKey, width, height)).catch((error) => {
           console.warn("Voorgrondherkenning overgeslagen:", error);
           return null;
         })
@@ -643,7 +646,7 @@ export async function POST(req: Request) {
         const generatedUrl = await runProductEdit(
           [prepared.referenceBuffer],
           productPrompt(prepared.selection),
-          apiKey
+          apiKey!
         );
 
         generated[index] = {
@@ -653,7 +656,7 @@ export async function POST(req: Request) {
       }
     );
 
-    let currentBuffer = originalBuffer;
+    let currentBuffer: Buffer = originalBuffer;
 
     for (let index = 0; index < generated.length; index++) {
       const item = generated[index];
@@ -779,11 +782,15 @@ export async function POST(req: Request) {
             Array.from({ length: productWidth * productHeight }, (_, i) => productPixels.data[i * 4 + 3])
           );
 
-      const baseRgbProduct = Buffer.alloc(productWidth * productHeight * 3);
+      let baseRgbProduct: Buffer = Buffer.alloc(productWidth * productHeight * 3);
       for (let i = 0, p = 0, q = 0; i < alpha.length; i++, p += 4, q += 3) {
         baseRgbProduct[q] = productPixels.data[p];
         baseRgbProduct[q + 1] = productPixels.data[p + 1];
         baseRgbProduct[q + 2] = productPixels.data[p + 2];
+      }
+
+      if (isDirectRolluik) {
+        baseRgbProduct = colourRolluikRgb(baseRgbProduct, alpha, productWidth, productHeight, item.selection.systemColor);
       }
 
       const canPerspectiveWarp =
@@ -798,10 +805,16 @@ export async function POST(req: Request) {
       let overlayTop = item.bounds.top;
 
       if (canPerspectiveWarp) {
-        const quad = normalizePerspectiveQuad(item.selection.coordinates).map((point) => ({
-          x: point.x * width - item.bounds.left,
-          y: point.y * height - item.bounds.top,
+        const frameQuad = normalizePerspectiveQuad(item.selection.coordinates).map(point => ({
+          x: point.x * width, y: point.y * height,
         }));
+        if (isDirectRolluik && (productWidth !== ROLLUIK_ASSET.width || productHeight !== ROLLUIK_ASSET.height)) {
+          throw new Error("De rolluikasset past niet bij de goedgekeurde montageankers.");
+        }
+        const productFootprint = isDirectRolluik
+          ? rolluikProductFootprint(frameQuad, item.selection.mountingMode ?? "OP_DE_DAG")
+          : frameQuad;
+        const quad = productFootprint.map(point => ({x:point.x-item.bounds.left,y:point.y-item.bounds.top}));
 
         const warped = perspectiveWarpRgba(
           baseRgbProduct,
@@ -848,8 +861,10 @@ export async function POST(req: Request) {
         }
       }
 
-      // Intersect the transformed product with the exact user mask. This
-      // guarantees that no pixels outside the selected facade area are changed.
+      // OP DE DAG uses the projected product silhouette, not the frame mask.
+      // Preserve the actual visible coverage for foreground restoration as well.
+      const expandsFrame = isDirectRolluik && item.selection.mountingMode !== "IN_DE_DAG";
+      const productCoverage = isDirectRolluik ? Buffer.alloc(width * height) : null;
       const combinedAlpha = Buffer.alloc(overlayWidth * overlayHeight);
       for (let y = 0; y < overlayHeight; y++) {
         const globalY = overlayTop + y;
@@ -860,10 +875,12 @@ export async function POST(req: Request) {
           const alphaIndex = y * overlayWidth + x;
           const maskIndex = globalY * width + globalX;
           combinedAlpha[alphaIndex] = Math.round(
-            (overlayAlpha[alphaIndex] * item.maskRaw[maskIndex]) / 255
+            (overlayAlpha[alphaIndex] * (expandsFrame ? 255 : item.maskRaw[maskIndex])) / 255
           );
+          if (productCoverage && combinedAlpha[alphaIndex] > 0) productCoverage[maskIndex] = 255;
         }
       }
+      if (productCoverage) item.maskRaw = productCoverage;
 
       currentBuffer = await compositeGeneratedProduct(
         currentBuffer,

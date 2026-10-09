@@ -79,6 +79,7 @@ export default function Home() {
         fabricColor: mask.fabricColor,
         type: mask.type,
         coordinates: mask.coordinates,
+        mountingMode: mask.mountingMode,
         rasterMasks: mask.rasterMasks
       }))
     };

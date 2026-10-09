@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { perspectiveWarpRgba } from "../.test-build/perspective-warp.js";
+import { perspectiveWarpRgba } from "../.test-build/lib/perspective-warp.js";
 
 test("perspective warp preserves an identity rectangle", () => {
   const width = 4;
@@ -53,7 +53,7 @@ test("perspective warp maps a rectangle into a slanted facade quad", () => {
 
 
 test("normalizes arbitrary corner click order", async () => {
-  const { normalizePerspectiveQuad } = await import("../.test-build/perspective-warp.js");
+  const { normalizePerspectiveQuad } = await import("../.test-build/lib/perspective-warp.js");
   assert.deepEqual(normalizePerspectiveQuad([
     { x: 1, y: 15 },
     { x: 18, y: 4 },

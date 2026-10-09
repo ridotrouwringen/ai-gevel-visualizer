@@ -35,7 +35,8 @@ const isPointNearLine = (px: number, py: number, x1: number, y1: number, x2: num
 export function FacadeCanvas() {
   const {
     originalImage, setOriginalImage, clearMasks, masks, addMask,
-    activeProduct, activeSystemColor, activeFabricColor
+    activeProduct, activeSystemColor, activeFabricColor, selectedMaskId, selectMask, updateMask,
+    activeMountingMode: mountingMode, setActiveMountingMode: setMountingMode
   } = useVisualizerStore();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +52,7 @@ export function FacadeCanvas() {
   // Debug view: this is the exact raster mask stored in Zustand and sent
   // unchanged to /api/replicate as selection.rasterMasks.
   const [showGenerationMask, setShowGenerationMask] = useState(true);
-  const [mountingMode, setMountingMode] = useState<'IN_DE_DAG' | 'OP_DE_DAG'>('OP_DE_DAG');
+  const cornerDrag = useRef<{id:string,index:number} | null>(null);
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -80,6 +81,9 @@ export function FacadeCanvas() {
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
+    // The image may not have dimensions yet when returning from the result.
+    // onLoad redraws once it is decoded; drawing a zero-sized canvas throws.
+    if (rect.width < 1 || rect.height < 1) return;
     canvas.width = rect.width;
     canvas.height = rect.height;
 
@@ -179,6 +183,16 @@ export function FacadeCanvas() {
       }
     });
 
+    masks.filter(m=>m.coordinates.length===4).forEach(mask=> {
+      mask.coordinates.forEach((point,index)=> {
+        const x=point.x*canvas.width,y=point.y*canvas.height;
+        ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);
+        ctx.fillStyle=mask.id===selectedMaskId?'#facc15':'white';ctx.fill();
+        ctx.strokeStyle='#111827';ctx.lineWidth=1;ctx.stroke();
+        if(mask.id===selectedMaskId){ctx.fillStyle='#111827';ctx.fillText(`P${index+1}`,x+8,y-8);}
+      });
+    });
+
     if (polygonPoints.length > 0 && activeProduct !== 'KNIKARMSCHERMEN') {
       const hexColor = getColorHex(activeFabricColor || activeSystemColor);
       ctx.save();
@@ -274,7 +288,7 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, polygonPoints, polygonPreviewPoint, dragStart, dragCurrent, originalImage, showGenerationMask, mountingMode]);
+  }, [masks, polygonPoints, polygonPreviewPoint, dragStart, dragCurrent, originalImage, showGenerationMask, mountingMode, selectedMaskId]);
 
   // The drag rectangle is the complete and authoritative generation mask for
   // Rolluiken and screens use only the exact four-point user selection.
@@ -330,6 +344,15 @@ export function FacadeCanvas() {
     e.currentTarget.setPointerCapture(e.pointerId);
     setSegmentError(null);
 
+    if (polygonPoints.length === 0) {
+      const rect=e.currentTarget.getBoundingClientRect();
+      for(const mask of [...masks].reverse()) {
+        if(mask.coordinates.length!==4) continue;
+        const index=mask.coordinates.findIndex(p=>Math.hypot((p.x-position.x)*rect.width,(p.y-position.y)*rect.height)<10);
+        if(index>=0){selectMask(mask.id);cornerDrag.current={id:mask.id,index};return;}
+      }
+      selectMask(null);
+    }
     if (activeProduct === 'KNIKARMSCHERMEN') {
       setDragStart(position);
       setDragCurrent(position);
@@ -369,6 +392,16 @@ export function FacadeCanvas() {
     const position = getPointerPosition(e);
     if (!position) return;
 
+    if (cornerDrag.current) {
+      const {id,index}=cornerDrag.current;
+      const mask=masks.find(m=>m.id===id);
+      const w=imgRef.current?.naturalWidth,h=imgRef.current?.naturalHeight;
+      if(mask && w && h){
+        const coordinates=mask.coordinates.map((p,i)=>i===index?position:p);
+        updateMask(id,{coordinates,rasterMasks:[buildPolygonRasterMask(coordinates,w,h)]});
+      }
+      return;
+    }
     if (activeProduct === 'KNIKARMSCHERMEN') {
       if (!dragStart) return;
       setDragCurrent(position);
@@ -381,6 +414,7 @@ export function FacadeCanvas() {
   };
 
   const handlePointerUp = async (e: PointerEvent<HTMLCanvasElement>) => {
+    if (cornerDrag.current) { cornerDrag.current=null; return; }
     if (activeProduct !== 'KNIKARMSCHERMEN' || !dragStart) return;
     const end = getPointerPosition(e);
     if (!end) {
@@ -449,6 +483,7 @@ export function FacadeCanvas() {
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={() => {
+            cornerDrag.current=null;
             setDragStart(null);
             setDragCurrent(null);
           }}
@@ -463,7 +498,7 @@ export function FacadeCanvas() {
           onClick={() => setShowGenerationMask((visible) => !visible)}
           className="absolute top-4 right-4 z-20 bg-fuchsia-600/95 hover:bg-fuchsia-700 text-white px-4 py-2 rounded-md text-sm shadow-lg font-semibold border border-white/30"
         >
-          {showGenerationMask ? 'Mask verbergen' : 'Exacte generation-mask tonen'}
+          {showGenerationMask ? 'Mask verbergen' : 'Kozijnselecties tonen'}
         </button>
       )}
 
@@ -477,7 +512,7 @@ export function FacadeCanvas() {
 
       {showGenerationMask && masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
         <div className="absolute bottom-4 left-4 z-20 bg-fuchsia-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
-          EXACTE MASK → /api/replicate
+          Kozijncontour — opbouw kan erbuiten vallen
         </div>
       )}
 
@@ -485,7 +520,7 @@ export function FacadeCanvas() {
         <Crosshair size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
         {segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
           ? "Sleep over de gewenste breedte van het knikarmscherm."
-          : "Klik 4 punten op de vier hoeken van het kozijn."
+          : "Klik 4 kozijnhoeken. Sleep een hoekpunt om het te verstellen."
         }
       </div>
 

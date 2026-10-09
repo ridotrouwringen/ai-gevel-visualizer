@@ -157,3 +157,19 @@ export function perspectiveWarpRgba(
 
   return { rgba, width, height, offsetX, offsetY };
 }
+
+/** Project a point in a unit rectangle into the same planar quad, also outside it. */
+export function projectUnitPoint(quad: PerspectivePoint[], point: PerspectivePoint): PerspectivePoint {
+  if (quad.length !== 4) throw new Error("Vier kozijnpunten zijn vereist.");
+  const unit = [{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
+  const matrix: number[][] = [], values: number[] = [];
+  unit.forEach(({x,y}, i) => {
+    const {x:u,y:v} = quad[i];
+    matrix.push([x,y,1,0,0,0,-u*x,-u*y], [0,0,0,x,y,1,-v*x,-v*y]);
+    values.push(u,v);
+  });
+  const h = solveLinearSystem(matrix, values);
+  const d = h[6]*point.x + h[7]*point.y + 1;
+  if (d <= 1e-8) throw new Error("Het productgebied kruist de perspectiefhorizon.");
+  return {x:(h[0]*point.x+h[1]*point.y+h[2])/d, y:(h[3]*point.x+h[4]*point.y+h[5])/d};
+}

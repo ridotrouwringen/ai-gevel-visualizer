@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractRoboflowPredictions } from "../.test-build/roboflow-predictions.js";
+import { extractRoboflowPredictions } from "../.test-build/lib/roboflow-predictions.js";
 
 test("parses the exact Roboflow response shape used by main", () => {
   const payload = {
