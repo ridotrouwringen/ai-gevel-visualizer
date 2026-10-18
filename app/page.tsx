@@ -6,6 +6,8 @@ import { FacadeCanvas } from '@/components/canvas/facade-canvas';
 import { useVisualizerStore } from '@/store/visualizer-store';
 import { Toaster, toast } from 'sonner';
 import { Loader2, RotateCcw } from 'lucide-react';
+import { packRasterMask } from '@/lib/raster-mask-transfer';
+import { readGenerationResponse, serializeGenerationRequest } from '@/lib/generation-http';
 
 export default function Home() {
   const { originalImage, generatedImage, setGeneratedImage, masks, setOriginalImage, clearMasks } = useVisualizerStore();
@@ -80,7 +82,7 @@ export default function Home() {
         type: mask.type,
         coordinates: mask.coordinates,
         mountingMode: mask.mountingMode,
-        rasterMasks: mask.rasterMasks
+        rasterMasks: mask.rasterMasks?.map(packRasterMask)
       }))
     };
 
@@ -90,14 +92,10 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: serializeGenerationRequest(payload),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Er is een fout opgetreden bij de AI.");
-      }
+      const data = await readGenerationResponse(response);
 
       // Sla de gegenereerde foto op in de global state zodat we hem kunnen tonen
       if (data.imageUrl) {

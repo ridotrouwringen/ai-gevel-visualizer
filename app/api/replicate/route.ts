@@ -10,6 +10,7 @@ import { compositeGeneratedProduct } from "@/lib/image-composite";
 import { normalizePerspectiveQuad, perspectiveWarpRgba } from "@/lib/perspective-warp";
 import { buildLineMask, buildRasterMask, getSelectionBounds } from "@/lib/masks";
 import { generationInputError } from "@/lib/replicate-validation";
+import { unpackRasterMask, type TransferRasterMask } from "@/lib/raster-mask-transfer";
 import {
   SYSTEM_COLORS,
   ZIPSCREEN_FABRICS,
@@ -27,6 +28,7 @@ type Selection = Pick<
   MaskShape,
   "id" | "sequenceNumber" | "type" | "coordinates" | "rasterMasks" | "productType" | "systemColor" | "fabricColor" | "mountingMode"
 >;
+type TransferSelection = Omit<Selection, "rasterMasks"> & { rasterMasks?: TransferRasterMask[] };
 
 function dataUriToBuffer(dataUri: string) {
   const commaIndex = dataUri.indexOf(",");
@@ -536,7 +538,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const image = body?.image;
-    const selections = body?.selections as Selection[] | undefined;
+    const selections = body?.selections as TransferSelection[] | undefined;
     const productReferenceImages = body?.productReferenceImages;
 
     if (typeof image !== "string" || !Array.isArray(selections) || selections.length === 0) {
@@ -574,7 +576,7 @@ export async function POST(req: Request) {
       : [];
 
     const validationError = generationInputError(image, selections);
-    const validSelections = selections.filter((selection): selection is Selection => {
+    const validSelections = selections.filter((selection): selection is TransferSelection => {
       if (!selection || !selection.productType || !selection.systemColor) return false;
       if (selection.type === "LINE") return selection.coordinates?.length === 2;
       return Array.isArray(selection.rasterMasks) && selection.rasterMasks.length > 0;
@@ -596,6 +598,16 @@ export async function POST(req: Request) {
       );
     }
 
+    let decodedSelections: Selection[];
+    try {
+      decodedSelections = validSelections.map(selection => ({
+        ...selection,
+        rasterMasks: selection.rasterMasks?.map(mask => unpackRasterMask(mask, width * height)),
+      }));
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Ongeldige selectie." }, { status: 400 });
+    }
+
     console.log("Generatie gestart", {
       imageBytes: originalBuffer.length,
       width,
@@ -607,7 +619,7 @@ export async function POST(req: Request) {
     });
 
     const preparedSelections = await Promise.all(
-      validSelections.map((selection) =>
+      decodedSelections.map((selection) =>
         prepareSelection(originalBuffer, width, height, selection)
       )
     );
