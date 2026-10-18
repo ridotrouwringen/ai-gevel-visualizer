@@ -11,6 +11,7 @@ import { normalizePerspectiveQuad, perspectiveWarpRgba } from "@/lib/perspective
 import { buildLineMask, buildRasterMask, getSelectionBounds } from "@/lib/masks";
 import { generationInputError } from "@/lib/replicate-validation";
 import { unpackRasterMask, type TransferRasterMask } from "@/lib/raster-mask-transfer";
+import { orientFacadePhoto } from "@/lib/photo-orientation";
 import {
   SYSTEM_COLORS,
   ZIPSCREEN_FABRICS,
@@ -586,7 +587,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    const originalBuffer = dataUriToBuffer(image);
+    const uploadedBuffer = dataUriToBuffer(image);
+    const originalBuffer = await orientFacadePhoto(uploadedBuffer);
+    const orientedImage = originalBuffer === uploadedBuffer ? image : bufferToDataUri(originalBuffer);
     const metadata = await sharp(originalBuffer).metadata();
     const width = metadata.width;
     const height = metadata.height;
@@ -628,7 +631,7 @@ export async function POST(req: Request) {
     // If detection fails, keep the existing composite unchanged.
     const hasRollerShutter = validSelections.some((selection) => selection.productType === "ROLLUIKEN");
     const foregroundMaskPromise = hasRollerShutter
-      && apiKey ? cachedForeground(image, () => detectForegroundLamp(image, apiKey, width, height)).catch((error) => {
+      && apiKey ? cachedForeground(orientedImage, () => detectForegroundLamp(orientedImage, apiKey, width, height)).catch((error) => {
           console.warn("Voorgrondherkenning overgeslagen:", error);
           return null;
         })
