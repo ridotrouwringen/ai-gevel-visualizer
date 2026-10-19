@@ -10,5 +10,5 @@
   },
   "include": ["lib/image-composite.ts", "lib/masks.ts", "lib/replicate-validation.ts", "lib/rolluik-geometry.ts",
     "lib/perspective-warp.ts", "lib/rolluik-placement.ts", "lib/foreground-cache.ts", "store/visualizer-store.ts",
-    "lib/rolluik-colour.ts", "lib/photo-orientation.ts", "lib/raster-mask-transfer.ts", "lib/generation-http.ts", "lib/roboflow-predictions.ts", "types/visualizer.ts"]
+    "lib/rolluik-colour.ts", "lib/photo-orientation.ts", "lib/photo-viewport.ts", "lib/raster-mask-transfer.ts", "lib/generation-http.ts", "lib/roboflow-predictions.ts", "types/visualizer.ts"]
 }

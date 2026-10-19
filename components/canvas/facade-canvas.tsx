@@ -2,8 +2,10 @@
 
 import { useRef, ChangeEvent, useEffect, useState, PointerEvent } from 'react';
 import { useVisualizerStore } from '@/store/visualizer-store';
-import { UploadCloud, Trash2, Crosshair } from 'lucide-react';
+import { UploadCloud, Trash2, Crosshair, ZoomIn, ZoomOut, Hand, Maximize } from 'lucide-react';
 import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, ProductType, SystemColor, FabricColor } from '@/types/visualizer';
+
+import { FIT_PHOTO, MAX_PHOTO_ZOOM, constrainPhotoView, zoomPhotoAt, photoPointFromClient, type PhotoView } from '@/lib/photo-viewport';
 
 const getColorHex = (id: SystemColor | FabricColor | null) => {
   if (!id) return '#000000';
@@ -52,6 +54,13 @@ export function FacadeCanvas() {
   // Debug view: this is the exact raster mask stored in Zustand and sent
   // unchanged to /api/replicate as selection.rasterMasks.
   const [showGenerationMask, setShowGenerationMask] = useState(true);
+  const [view, setView] = useState<PhotoView>(FIT_PHOTO);
+  const [panMode, setPanMode] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const panStart = useRef<{ id: number; x: number; y: number; view: PhotoView } | null>(null);
+  const touches = useRef(new Map<number, {x:number;y:number}>());
+  const pendingTouch = useRef<number | null>(null);
+  const pinch = useRef<{distance:number;center:{x:number;y:number};view:PhotoView} | null>(null);
   const cornerDrag = useRef<{id:string,index:number} | null>(null);
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
@@ -80,32 +89,36 @@ export function FacadeCanvas() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const rect = canvas.getBoundingClientRect();
+    const rect = { width: canvas.clientWidth, height: canvas.clientHeight };
     // The image may not have dimensions yet when returning from the result.
     // onLoad redraws once it is decoded; drawing a zero-sized canvas throws.
     if (rect.width < 1 || rect.height < 1) return;
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+    const drawWidth = rect.width, drawHeight = rect.height;
+    const resolution = Math.min((window.devicePixelRatio || 1) * view.scale, 4, Math.sqrt(16_000_000 / (drawWidth * drawHeight)));
+    canvas.width = Math.round(drawWidth * resolution);
+    canvas.height = Math.round(drawHeight * resolution);
+    ctx.setTransform(canvas.width / drawWidth, 0, 0, canvas.height / drawHeight, 0, 0);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, drawWidth, drawHeight);
     ctx.lineCap = 'round';
+    ctx.font = `${12 / view.scale}px Arial`;
 
-    const imageWidth = imgRef.current?.naturalWidth || canvas.width;
-    const imageHeight = imgRef.current?.naturalHeight || canvas.height;
+    const imageWidth = imgRef.current?.naturalWidth || drawWidth;
+    const imageHeight = imgRef.current?.naturalHeight || drawHeight;
 
     masks.forEach((mask) => {
       const hexColor = getColorHex(mask.fabricColor || mask.systemColor);
 
       if (mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) {
         const maskCanvas = document.createElement('canvas');
-        maskCanvas.width = canvas.width;
-        maskCanvas.height = canvas.height;
+        maskCanvas.width = drawWidth;
+        maskCanvas.height = drawHeight;
         const maskCtx = maskCanvas.getContext('2d');
         if (maskCtx) {
-          const imageWidth = imgRef.current?.naturalWidth || canvas.width;
-          const imageHeight = imgRef.current?.naturalHeight || canvas.height;
-          const imageScaleX = canvas.width / imageWidth;
-          const imageScaleY = canvas.height / imageHeight;
+          const imageWidth = imgRef.current?.naturalWidth || drawWidth;
+          const imageHeight = imgRef.current?.naturalHeight || drawHeight;
+          const imageScaleX = drawWidth / imageWidth;
+          const imageScaleY = drawHeight / imageHeight;
           mask.rasterMasks.forEach((raster) => {
             const local = maskCtx.createImageData(raster.width, raster.height);
             for (let i = 0; i < raster.width * raster.height; i++) {
@@ -140,16 +153,16 @@ export function FacadeCanvas() {
             ctx.restore();
           }
         }
-        const midX = canvas.width * 0.5;
-        const midY = canvas.height * 0.5;
+        const midX = drawWidth * 0.5;
+        const midY = drawHeight * 0.5;
         drawBadge(ctx, midX, midY, mask.sequenceNumber, hexColor);
       }
 
       else if (mask.type === 'POLYGON') {
         ctx.beginPath();
         mask.coordinates.forEach((coord, i) => {
-          const x = coord.x * canvas.width;
-          const y = coord.y * canvas.height;
+          const x = coord.x * drawWidth;
+          const y = coord.y * drawHeight;
           if (i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         });
@@ -158,25 +171,25 @@ export function FacadeCanvas() {
         ctx.fillStyle = `${hexColor}66`;
         ctx.fill();
         ctx.strokeStyle = hexColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2 / view.scale;
         ctx.stroke();
 
-        const midX = mask.coordinates.reduce((sum, c) => sum + c.x, 0) / mask.coordinates.length * canvas.width;
-        const midY = mask.coordinates.reduce((sum, c) => sum + c.y, 0) / mask.coordinates.length * canvas.height;
+        const midX = mask.coordinates.reduce((sum, c) => sum + c.x, 0) / mask.coordinates.length * drawWidth;
+        const midY = mask.coordinates.reduce((sum, c) => sum + c.y, 0) / mask.coordinates.length * drawHeight;
         drawBadge(ctx, midX, midY, mask.sequenceNumber, hexColor);
       }
 
       else if (mask.type === 'LINE' && mask.coordinates.length === 2) {
-        const startX = mask.coordinates[0].x * canvas.width;
-        const startY = mask.coordinates[0].y * canvas.height;
-        const endX = mask.coordinates[1].x * canvas.width;
-        const endY = mask.coordinates[1].y * canvas.height;
+        const startX = mask.coordinates[0].x * drawWidth;
+        const startY = mask.coordinates[0].y * drawHeight;
+        const endX = mask.coordinates[1].x * drawWidth;
+        const endY = mask.coordinates[1].y * drawHeight;
 
         ctx.beginPath();
         ctx.moveTo(startX, startY);
         ctx.lineTo(endX, endY);
         ctx.strokeStyle = hexColor;
-        ctx.lineWidth = 4;
+        ctx.lineWidth = 4 / view.scale;
         ctx.stroke();
 
         drawBadge(ctx, (startX + endX) / 2, (startY + endY) / 2, mask.sequenceNumber, hexColor);
@@ -185,11 +198,11 @@ export function FacadeCanvas() {
 
     masks.filter(m=>m.coordinates.length===4).forEach(mask=> {
       mask.coordinates.forEach((point,index)=> {
-        const x=point.x*canvas.width,y=point.y*canvas.height;
-        ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);
+        const x=point.x*drawWidth,y=point.y*drawHeight;
+        ctx.beginPath();ctx.arc(x,y,5 / view.scale,0,Math.PI*2);
         ctx.fillStyle=mask.id===selectedMaskId?'#facc15':'white';ctx.fill();
-        ctx.strokeStyle='#111827';ctx.lineWidth=1;ctx.stroke();
-        if(mask.id===selectedMaskId){ctx.fillStyle='#111827';ctx.fillText(`P${index+1}`,x+8,y-8);}
+        ctx.strokeStyle='#111827';ctx.lineWidth=1 / view.scale;ctx.stroke();
+        if(mask.id===selectedMaskId){ctx.fillStyle='#111827';ctx.fillText(`P${index+1}`,x+8 / view.scale,y-8 / view.scale);}
       });
     });
 
@@ -198,12 +211,12 @@ export function FacadeCanvas() {
       ctx.save();
       ctx.strokeStyle = hexColor;
       ctx.fillStyle = `${hexColor}22`;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 3 / view.scale;
       ctx.setLineDash([7, 5]);
       ctx.beginPath();
       polygonPoints.forEach((point, index) => {
-        const x = point.x * canvas.width;
-        const y = point.y * canvas.height;
+        const x = point.x * drawWidth;
+        const y = point.y * drawHeight;
         if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       });
       if (polygonPoints.length === 4) ctx.closePath();
@@ -217,10 +230,10 @@ export function FacadeCanvas() {
       if (polygonPreviewPoint && polygonPoints.length < 4) {
         const last = polygonPoints[polygonPoints.length - 1];
         ctx.beginPath();
-        ctx.moveTo(last.x * canvas.width, last.y * canvas.height);
-        ctx.lineTo(polygonPreviewPoint.x * canvas.width, polygonPreviewPoint.y * canvas.height);
+        ctx.moveTo(last.x * drawWidth, last.y * drawHeight);
+        ctx.lineTo(polygonPreviewPoint.x * drawWidth, polygonPreviewPoint.y * drawHeight);
         ctx.strokeStyle = '#39FF14';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3 / view.scale;
         ctx.setLineDash([5, 5]);
         ctx.stroke();
         ctx.setLineDash([]);
@@ -228,27 +241,27 @@ export function FacadeCanvas() {
         const first = polygonPoints[0];
         const last = polygonPoints[3];
         ctx.beginPath();
-        ctx.moveTo(last.x * canvas.width, last.y * canvas.height);
-        ctx.lineTo(first.x * canvas.width, first.y * canvas.height);
+        ctx.moveTo(last.x * drawWidth, last.y * drawHeight);
+        ctx.lineTo(first.x * drawWidth, first.y * drawHeight);
         ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2 / view.scale;
         ctx.setLineDash([5, 5]);
         ctx.stroke();
         ctx.setLineDash([]);
       }
 
       polygonPoints.forEach((point, index) => {
-        const x = point.x * canvas.width;
-        const y = point.y * canvas.height;
+        const x = point.x * drawWidth;
+        const y = point.y * drawHeight;
         ctx.beginPath();
-        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.arc(x, y, 7 / view.scale, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
         ctx.fill();
         ctx.strokeStyle = hexColor;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3 / view.scale;
         ctx.stroke();
         ctx.fillStyle = hexColor;
-        ctx.font = 'bold 12px Arial';
+        ctx.font = `bold ${12 / view.scale}px Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(String(index + 1), x, y);
@@ -260,10 +273,10 @@ export function FacadeCanvas() {
       const hexColor = getColorHex(activeFabricColor || activeSystemColor);
       ctx.strokeStyle = `${hexColor}DD`;
       ctx.setLineDash([7, 5]);
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 3 / view.scale;
       ctx.beginPath();
-      ctx.moveTo(dragStart.x * canvas.width, dragStart.y * canvas.height);
-      ctx.lineTo(dragCurrent.x * canvas.width, dragCurrent.y * canvas.height);
+      ctx.moveTo(dragStart.x * drawWidth, dragStart.y * drawHeight);
+      ctx.lineTo(dragCurrent.x * drawWidth, dragCurrent.y * drawHeight);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -271,14 +284,14 @@ export function FacadeCanvas() {
 
   const drawBadge = (ctx: CanvasRenderingContext2D, x: number, y: number, text: number, color: string) => {
     ctx.beginPath();
-    ctx.arc(x, y, 12, 0, Math.PI * 2);
+    ctx.arc(x, y, 12 / view.scale, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 14px Arial';
+    ctx.font = `bold ${14 / view.scale}px Arial`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text.toString(), x, y);
@@ -288,7 +301,60 @@ export function FacadeCanvas() {
     drawCanvas();
     window.addEventListener('resize', drawCanvas);
     return () => window.removeEventListener('resize', drawCanvas);
-  }, [masks, polygonPoints, polygonPreviewPoint, dragStart, dragCurrent, originalImage, showGenerationMask, mountingMode, selectedMaskId]);
+  }, [masks, polygonPoints, polygonPreviewPoint, dragStart, dragCurrent, originalImage, showGenerationMask, mountingMode, selectedMaskId, view.scale]);
+
+  useEffect(() => {
+    setView(FIT_PHOTO);
+    setPanMode(false);
+    setPolygonPoints([]);
+    setPolygonPreviewPoint(null);
+  }, [originalImage]);
+
+  useEffect(() => {
+    const frame = containerRef.current;
+    if (!frame) return;
+    const observer = new ResizeObserver(() => {
+      setView(FIT_PHOTO);
+      drawCanvas();
+    });
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [originalImage]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || (event.target instanceof HTMLElement &&
+        (event.target.matches('input, textarea, select, button') || event.target.isContentEditable))) return;
+      event.preventDefault();
+      setSpaceHeld(event.type === 'keydown');
+    };
+    const release = () => { setSpaceHeld(false); panStart.current = null; };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKey);
+    window.addEventListener('blur', release);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey); window.removeEventListener('blur', release); };
+  }, []);
+
+  useEffect(() => {
+    const frame = containerRef.current;
+    if (!frame) return;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const rect = frame.getBoundingClientRect();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1;
+      const factor = Math.exp(-event.deltaY * unit * (event.ctrlKey ? 0.01 : 0.002));
+      setView(current => zoomPhotoAt(current, current.scale * factor,
+        {x:event.clientX-rect.left,y:event.clientY-rect.top},rect.width,rect.height));
+    };
+    frame.addEventListener('wheel', wheel, {passive:false});
+    return () => frame.removeEventListener('wheel', wheel);
+  }, [originalImage]);
+
+  const zoomWithButton = (factor: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) setView(current => zoomPhotoAt(current, current.scale * factor,
+      {x:rect.width/2,y:rect.height/2},rect.width,rect.height));
+  };
 
   // The drag rectangle is the complete and authoritative generation mask for
   // Rolluiken and screens use only the exact four-point user selection.
@@ -332,16 +398,12 @@ export function FacadeCanvas() {
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
 
-    return {
-      x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-      y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
-    };
+    return photoPointFromClient({x:e.clientX,y:e.clientY},rect);
   };
 
   const handlePointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
     const position = getPointerPosition(e);
     if (!position) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
     setSegmentError(null);
 
     if (polygonPoints.length === 0) {
@@ -445,6 +507,75 @@ export function FacadeCanvas() {
     });
   };
 
+  const onPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.button !== 0 && event.button !== 1) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (event.pointerType === 'touch') {
+      touches.current.set(event.pointerId,{x:event.clientX,y:event.clientY});
+      if (touches.current.size === 2) {
+        const [a,b] = [...touches.current.values()];
+        pinch.current={distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),center:{x:(a.x+b.x)/2,y:(a.y+b.y)/2},view};
+        pendingTouch.current=null;cornerDrag.current=null;panStart.current=null;
+        setDragStart(null);setDragCurrent(null);setPolygonPreviewPoint(null);
+        return;
+      }
+      if (touches.current.size > 2) return;
+    }
+    if (panMode || spaceHeld || event.button === 1) {
+      event.preventDefault();
+      panStart.current={id:event.pointerId,x:event.clientX,y:event.clientY,view};
+      return;
+    }
+    if (event.pointerType === 'touch' && activeProduct !== 'KNIKARMSCHERMEN') {
+      const position=getPointerPosition(event),rect=event.currentTarget.getBoundingClientRect();
+      const nearCorner=polygonPoints.length===0 && position && masks.some(mask=>mask.coordinates.length===4 &&
+        mask.coordinates.some(p=>Math.hypot((p.x-position.x)*rect.width,(p.y-position.y)*rect.height)<10));
+      if (!nearCorner) {pendingTouch.current=event.pointerId;return;}
+    }
+    handlePointerDown(event);
+  };
+
+  const onPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'touch' && touches.current.has(event.pointerId))
+      touches.current.set(event.pointerId,{x:event.clientX,y:event.clientY});
+    const frame=containerRef.current?.getBoundingClientRect();
+    if (pinch.current && touches.current.size>=2 && frame) {
+      const [a,b]=[...touches.current.values()],start=pinch.current;
+      const center={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+      const next=zoomPhotoAt(start.view,start.view.scale*Math.hypot(a.x-b.x,a.y-b.y)/start.distance,
+        {x:start.center.x-frame.left,y:start.center.y-frame.top},frame.width,frame.height);
+      setView(constrainPhotoView({...next,x:next.x+center.x-start.center.x,y:next.y+center.y-start.center.y},frame.width,frame.height));
+      return;
+    }
+    if (panStart.current && frame) {
+      const start=panStart.current;
+      if(start.id===event.pointerId)setView(constrainPhotoView({...start.view,x:start.view.x+event.clientX-start.x,y:start.view.y+event.clientY-start.y},frame.width,frame.height));
+      return;
+    }
+    if (pendingTouch.current!==null || panMode || spaceHeld) return;
+    handlePointerMove(event);
+  };
+
+  const onPointerUp = (event: PointerEvent<HTMLCanvasElement>) => {
+    const wasPinch=pinch.current!==null;
+    touches.current.delete(event.pointerId);
+    if (wasPinch) {
+      if (touches.current.size===0)pinch.current=null;
+    } else if (panStart.current) {
+      if(panStart.current.id===event.pointerId)panStart.current=null;
+    } else {
+      if(pendingTouch.current===event.pointerId)handlePointerDown(event);
+      void handlePointerUp(event);
+    }
+    pendingTouch.current=null;
+    if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const cancelPointer = () => {
+    cornerDrag.current=null;panStart.current=null;pendingTouch.current=null;pinch.current=null;touches.current.clear();
+    setDragStart(null);setDragCurrent(null);
+  };
+
   const resetPolygonSelection = () => {
     setPolygonPoints([]);
     setPolygonPreviewPoint(null);
@@ -470,6 +601,7 @@ export function FacadeCanvas() {
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-gray-200 rounded-xl overflow-hidden shadow-inner p-4">
       <div className="relative inline-block max-w-full max-h-full" ref={containerRef}>
+        <div style={{transform:`translate(${view.x}px, ${view.y}px) scale(${view.scale})`,transformOrigin:'0 0'}}>
         <img
           src={originalImage}
           alt="Gevel"
@@ -479,17 +611,15 @@ export function FacadeCanvas() {
         />
         <canvas
           ref={canvasRef}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={() => {
-            cornerDrag.current=null;
-            setDragStart(null);
-            setDragCurrent(null);
-          }}
-          className="absolute top-0 left-0 w-full h-full rounded-sm cursor-crosshair"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={cancelPointer}
+          aria-label="Kozijnhoeken aanwijzen"
+          className={`absolute top-0 left-0 w-full h-full rounded-sm ${panMode || spaceHeld ? 'cursor-grab' : 'cursor-crosshair'}`}
           style={{ touchAction: 'none' }}
         />
+        </div>
       </div>
 
       {masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
@@ -511,16 +641,16 @@ export function FacadeCanvas() {
 
 
       {showGenerationMask && masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
-        <div className="absolute bottom-4 left-4 z-20 bg-fuchsia-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
+        <div className="absolute bottom-20 left-4 z-20 pointer-events-none bg-fuchsia-600/95 text-white px-4 py-2 rounded-md text-xs shadow-lg font-medium">
           Kozijncontour — opbouw kan erbuiten vallen
         </div>
       )}
 
-      <div className="absolute top-4 left-4 bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
+      <div className="absolute top-4 left-4 max-w-[55%] pointer-events-none bg-black/80 backdrop-blur-sm text-white px-4 py-2 rounded-md text-sm flex items-center gap-2 shadow-lg">
         <Crosshair size={16} className={activeProduct === 'KNIKARMSCHERMEN' ? 'text-blue-400' : 'text-green-400'} />
         {segmentError ? segmentError : activeProduct === 'KNIKARMSCHERMEN'
           ? "Sleep over de gewenste breedte van het knikarmscherm."
-          : "Klik 4 kozijnhoeken. Sleep een hoekpunt om het te verstellen."
+          : panMode || spaceHeld ? "Sleep de foto. Kies Aanwijzen om hoekpunten te plaatsen." : "Klik 4 kozijnhoeken. Zoom voor precisie; spatie + slepen verschuift de foto."
         }
       </div>
 
@@ -529,6 +659,14 @@ export function FacadeCanvas() {
           Opnieuw ({polygonPoints.length}/4)
         </button>
       )}
+
+      <div role="toolbar" aria-label="Foto zoomen en verschuiven" className="absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-1 rounded-lg border bg-white/95 p-1.5 shadow-lg text-gray-900 text-sm">
+        <button type="button" aria-label="Uitzoomen" title="Uitzoomen" disabled={view.scale<=1} onClick={()=>zoomWithButton(1/1.4)} className="p-2 rounded hover:bg-gray-100 disabled:opacity-40"><ZoomOut size={18}/></button>
+        <output aria-label="Zoomniveau" className="min-w-12 text-center tabular-nums">{Math.round(view.scale*100)}%</output>
+        <button type="button" aria-label="Inzoomen" title="Inzoomen" disabled={view.scale>=MAX_PHOTO_ZOOM} onClick={()=>zoomWithButton(1.4)} className="p-2 rounded hover:bg-gray-100 disabled:opacity-40"><ZoomIn size={18}/></button>
+        <button type="button" aria-pressed={panMode} onClick={()=>setPanMode(current=>!current)} className={`flex items-center gap-1 p-2 rounded ${panMode?'bg-blue-600 text-white':'hover:bg-gray-100'}`}><Hand size={16}/>{panMode?'Aanwijzen':'Verschuiven'}</button>
+        <button type="button" onClick={()=>setView(FIT_PHOTO)} className="flex items-center gap-1 p-2 rounded hover:bg-gray-100"><Maximize size={16}/>Hele foto tonen</button>
+      </div>
 
       <button
          onClick={() => { setOriginalImage(''); clearMasks(); }}
