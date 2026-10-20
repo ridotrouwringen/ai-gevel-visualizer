@@ -12,6 +12,7 @@ import { readGenerationResponse, serializeGenerationRequest } from '@/lib/genera
 export default function Home() {
   const { originalImage, generatedImage, setGeneratedImage, masks, setOriginalImage, clearMasks } = useVisualizerStore();
   const [isGenerating, setIsGenerating] = useState(false);
+  const [previewNotes, setPreviewNotes] = useState<string[]>([]);
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const [productReferenceFiles, setProductReferenceFiles] = useState<{ name: string; dataUrl: string }[]>([]);
 
@@ -100,6 +101,7 @@ export default function Home() {
       // Sla de gegenereerde foto op in de global state zodat we hem kunnen tonen
       if (data.imageUrl) {
         setGeneratedImage(data.imageUrl);
+        setPreviewNotes(data.previewNotes ?? []);
         toast.success("Visualisatie succesvol gegenereerd!");
       } else {
         throw new Error("Geen afbeelding URL ontvangen van de server.");
@@ -186,15 +188,18 @@ export default function Home() {
         <div className="flex-1 p-6 relative flex items-center justify-center bg-gray-100 overflow-auto">
           {generatedImage ? (
             // Als de AI klaar is tonen we het resultaat
-            <div className="relative w-full h-full flex items-center justify-center bg-gray-200 rounded-xl overflow-hidden shadow-inner p-4">
+            <div className="relative w-full h-full flex flex-col items-center justify-center bg-gray-200 rounded-xl overflow-hidden shadow-inner p-4">
               <img 
                 src={generatedImage} 
                 alt="AI Resultaat Zonwering" 
-                className="max-w-full max-h-[80vh] object-contain shadow-md rounded-sm"
+                className="max-w-full max-h-[65vh] object-contain shadow-md rounded-sm"
               />
               <div className="absolute top-4 left-4 bg-blue-600 text-white px-4 py-2 rounded-md text-sm shadow-lg font-medium">
-                ✨ AI Resultaat (Zonwering toegevoegd)
+                Indicatieve visualisatie
               </div>
+              {previewNotes.length > 0 && <div role="status" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                {previewNotes.map(note => <p key={note} className="mb-1 last:mb-0">{note}</p>)}
+              </div>}
             </div>
           ) : (
             // Anders tonen we het normale interactieve canvas

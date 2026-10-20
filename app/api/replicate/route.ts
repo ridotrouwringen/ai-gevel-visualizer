@@ -1,7 +1,8 @@
+import { facadeMetricHints } from "@/lib/facade-metric-hints";
+import { rolluikComponentGeometry, renderRolluikComponents } from "@/lib/rolluik-components";
 import { NextResponse } from "next/server";
 import Replicate from "replicate";
 import { cachedForeground } from "@/lib/foreground-cache";
-import { rolluikProductFootprint, ROLLUIK_ASSET } from "@/lib/rolluik-placement";
 import { colourRolluikRgb } from "@/lib/rolluik-colour";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -672,6 +673,7 @@ export async function POST(req: Request) {
     );
 
     let currentBuffer: Buffer = originalBuffer;
+    const geometryResults = new Map<string, ReturnType<typeof rolluikComponentGeometry>>();
 
     for (let index = 0; index < generated.length; index++) {
       const item = generated[index];
@@ -819,16 +821,20 @@ export async function POST(req: Request) {
       let overlayLeft = item.bounds.left;
       let overlayTop = item.bounds.top;
 
-      if (canPerspectiveWarp) {
+      if (isDirectRolluik && canPerspectiveWarp) {
+        const frameQuad = normalizePerspectiveQuad(item.selection.coordinates).map(point => ({x:point.x*width,y:point.y*height}));
+        const hints = await facadeMetricHints(originalBuffer, frameQuad);
+        const geometry = rolluikComponentGeometry(frameQuad, item.selection.mountingMode ?? "OP_DE_DAG", width, height, hints);
+        const overlay = renderRolluikComponents(baseRgbProduct, alpha, geometry, width, height);
+        geometryResults.set(item.selection.id, geometry);
+        overlayRgb = overlay.rgb; overlayAlpha = overlay.alpha;
+        overlayWidth = overlay.width; overlayHeight = overlay.height;
+        overlayLeft = overlay.left; overlayTop = overlay.top;
+      } else if (canPerspectiveWarp) {
         const frameQuad = normalizePerspectiveQuad(item.selection.coordinates).map(point => ({
           x: point.x * width, y: point.y * height,
         }));
-        if (isDirectRolluik && (productWidth !== ROLLUIK_ASSET.width || productHeight !== ROLLUIK_ASSET.height)) {
-          throw new Error("De rolluikasset past niet bij de goedgekeurde montageankers.");
-        }
-        const productFootprint = isDirectRolluik
-          ? rolluikProductFootprint(frameQuad, item.selection.mountingMode ?? "OP_DE_DAG")
-          : frameQuad;
+        const productFootprint = frameQuad;
         const quad = productFootprint.map(point => ({x:point.x-item.bounds.left,y:point.y-item.bounds.top}));
 
         const warped = perspectiveWarpRgba(
@@ -943,6 +949,7 @@ export async function POST(req: Request) {
     const results = generated.map((item) => ({
       id: item!.selection.id,
       productType: item!.selection.productType,
+      ...(geometryResults.has(item!.selection.id) ? {geometry: geometryResults.get(item!.selection.id)} : {}),
     }));
 
     return NextResponse.json({
@@ -951,6 +958,7 @@ export async function POST(req: Request) {
       model: "google/nano-banana",
       selectionCount: validSelections.length,
       results,
+      previewNotes: [...new Set([...geometryResults.values()].flatMap(g => g.notes))],
       message: "Product gegenereerd als geïsoleerde asset en exact in de selectie geplaatst.",
     });
   } catch (error: unknown) {

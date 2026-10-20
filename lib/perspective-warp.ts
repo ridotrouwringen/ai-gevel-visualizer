@@ -116,16 +116,17 @@ export function perspectiveWarpRgba(
   sourceWidth: number,
   sourceHeight: number,
   quad: PerspectivePoint[],
+  clip?: {left:number;top:number;right:number;bottom:number},
 ) {
   if (quad.length !== 4) throw new Error("Een perspectieftransformatie vereist precies vier punten.");
   if (sourceWidth < 2 || sourceHeight < 2) throw new Error("Het product is te klein voor een perspectieftransformatie.");
 
   const xs = quad.map((point) => point.x);
   const ys = quad.map((point) => point.y);
-  const offsetX = Math.floor(Math.min(...xs));
-  const offsetY = Math.floor(Math.min(...ys));
-  const right = Math.ceil(Math.max(...xs));
-  const bottom = Math.ceil(Math.max(...ys));
+  const offsetX = Math.max(clip?.left ?? -Infinity, Math.floor(Math.min(...xs)));
+  const offsetY = Math.max(clip?.top ?? -Infinity, Math.floor(Math.min(...ys)));
+  const right = Math.min((clip?.right ?? Infinity)-1, Math.ceil(Math.max(...xs)));
+  const bottom = Math.min((clip?.bottom ?? Infinity)-1, Math.ceil(Math.max(...ys)));
   const width = Math.max(1, right - offsetX + 1);
   const height = Math.max(1, bottom - offsetY + 1);
 
@@ -158,8 +159,8 @@ export function perspectiveWarpRgba(
   return { rgba, width, height, offsetX, offsetY };
 }
 
-/** Project a point in a unit rectangle into the same planar quad, also outside it. */
-export function projectUnitPoint(quad: PerspectivePoint[], point: PerspectivePoint): PerspectivePoint {
+/** Compile the existing unit-rectangle mapping once for repeated sampling. */
+export function unitQuadHomography(quad: PerspectivePoint[]): number[] {
   if (quad.length !== 4) throw new Error("Vier kozijnpunten zijn vereist.");
   const unit = [{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
   const matrix: number[][] = [], values: number[] = [];
@@ -168,8 +169,16 @@ export function projectUnitPoint(quad: PerspectivePoint[], point: PerspectivePoi
     matrix.push([x,y,1,0,0,0,-u*x,-u*y], [0,0,0,x,y,1,-v*x,-v*y]);
     values.push(u,v);
   });
-  const h = solveLinearSystem(matrix, values);
+  return [...solveLinearSystem(matrix, values), 1];
+}
+
+export function projectHomography(h: number[], point: PerspectivePoint): PerspectivePoint {
   const d = h[6]*point.x + h[7]*point.y + 1;
   if (d <= 1e-8) throw new Error("Het productgebied kruist de perspectiefhorizon.");
   return {x:(h[0]*point.x+h[1]*point.y+h[2])/d, y:(h[3]*point.x+h[4]*point.y+h[5])/d};
+}
+
+/** Project a point in a unit rectangle into the same planar quad, also outside it. */
+export function projectUnitPoint(quad: PerspectivePoint[], point: PerspectivePoint): PerspectivePoint {
+  return projectHomography(unitQuadHomography(quad), point);
 }

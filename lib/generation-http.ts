@@ -8,7 +8,7 @@ export function serializeGenerationRequest(payload: unknown): string {
   return body;
 }
 
-export async function readGenerationResponse(response: Response): Promise<{ imageUrl?: string }> {
+export async function readGenerationResponse(response: Response): Promise<{ imageUrl?: string; previewNotes?: string[] }> {
   // Gateways may return plain text or HTML before the route handler runs.
   const text = await response.text();
   if (response.status === 413 || /^Request Entity Too Large/i.test(text.trim())) throw new Error(TOO_LARGE);
@@ -24,5 +24,5 @@ export async function readGenerationResponse(response: Response): Promise<{ imag
   if (!data || typeof data !== "object" || !("imageUrl" in data) || typeof data.imageUrl !== "string") {
     throw new Error("Geen afbeelding ontvangen van de server.");
   }
-  return { imageUrl: data.imageUrl };
+  return { imageUrl: data.imageUrl, ...("previewNotes" in data && Array.isArray(data.previewNotes) && data.previewNotes.every((note:unknown) => typeof note === "string") ? {previewNotes:data.previewNotes} : {}) };
 }
