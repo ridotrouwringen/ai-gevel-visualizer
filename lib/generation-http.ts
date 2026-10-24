@@ -1,4 +1,5 @@
-// Leave headroom below Vercel's 4.5 MB request limit. No photo resampling.
+// Final preflight after upload-time photo preparation; never change masks or
+// image dimensions here, after the user has selected corner coordinates.
 const MAX_REQUEST_BYTES = 4_400_000;
 const TOO_LARGE = "De foto en selecties zijn samen te groot om te versturen. Gebruik een foto met een kleinere bestandsgrootte (bijvoorbeeld JPEG) of minder productreferenties.";
 

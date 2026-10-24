@@ -5,6 +5,8 @@ import { useVisualizerStore } from '@/store/visualizer-store';
 import { UploadCloud, Trash2, Crosshair, ZoomIn, ZoomOut, Hand, Maximize } from 'lucide-react';
 import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, ProductType, SystemColor, FabricColor } from '@/types/visualizer';
 
+import { prepareFacadePhoto } from '@/lib/photo-upload';
+
 import { FIT_PHOTO, MAX_PHOTO_ZOOM, constrainPhotoView, zoomPhotoAt, photoPointFromClient, type PhotoView } from '@/lib/photo-viewport';
 
 const getColorHex = (id: SystemColor | FabricColor | null) => {
@@ -63,23 +65,28 @@ export function FacadeCanvas() {
   const pinch = useRef<{distance:number;center:{x:number;y:number};view:PhotoView} | null>(null);
   const cornerDrag = useRef<{id:string,index:number} | null>(null);
 
-  const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setSegmentError(null);
+  const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
+  const [photoNotice, setPhotoNotice] = useState<string | null>(null);
+  const uploadRequest = useRef(0);
 
-    // Keep the facade image portable for the API request. Object URLs
-    // (blob:...) only exist in this browser and cannot be decoded server-side.
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result !== "string" || !/^data:image\/(png|jpeg|webp);base64,/.test(reader.result)) {
-        setSegmentError("De gevel foto kon niet als base64-afbeelding worden ingelezen.");
-        return;
-      }
-      setOriginalImage(reader.result);
-    };
-    reader.onerror = () => setSegmentError("De gevel foto kon niet worden gelezen.");
-    reader.readAsDataURL(file);
+  const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const request = ++uploadRequest.current;
+    setSegmentError(null);
+    setIsPreparingPhoto(true);
+    try {
+      const photo = await prepareFacadePhoto(file);
+      if (request !== uploadRequest.current) return;
+      setPhotoNotice(photo.optimized ? 'Foto automatisch verkleind voor de visualisatie.' : null);
+      // All points and raster masks will be created on this exact work image.
+      setOriginalImage(photo.dataUrl);
+    } catch (error) {
+      if (request === uploadRequest.current) setSegmentError(error instanceof Error ? error.message : 'De foto kon niet worden voorbereid.');
+    } finally {
+      if (request === uploadRequest.current) setIsPreparingPhoto(false);
+    }
   };
 
   const drawCanvas = () => {
@@ -590,9 +597,12 @@ export function FacadeCanvas() {
          </div>
          <h3 className="text-lg font-semibold text-gray-900 mb-2">Upload een gevel foto</h3>
          <p className="text-gray-500 mb-6 max-w-md">Kies een duidelijke foto van de voor- of achterkant van het huis. Zorg dat de ramen goed zichtbaar zijn.</p>
+         <p className="mt-2 text-sm text-gray-500" role="status">{isPreparingPhoto ? 'Grote foto wordt automatisch geschikt gemaakt…' : 'Grote foto’s worden automatisch verkleind.'}</p>
+         {segmentError && <p role="alert" className="mt-3 text-sm text-red-700">{segmentError}</p>}
          <input type="file" accept="image/jpeg, image/png, image/webp" className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
-         <button onClick={() => fileInputRef.current?.click()} className="bg-white border border-gray-300 text-gray-700 font-medium py-2 px-6 rounded-md hover:bg-gray-50 transition-colors shadow-sm">
-           Kies Afbeelding
+         <button disabled={isPreparingPhoto}
+            onClick={() => fileInputRef.current?.click()} className="bg-white border border-gray-300 text-gray-700 font-medium py-2 px-6 rounded-md hover:bg-gray-50 transition-colors shadow-sm">
+           {isPreparingPhoto ? 'Foto voorbereiden…' : 'Kies Afbeelding'}
          </button>
       </div>
     );
@@ -668,6 +678,7 @@ export function FacadeCanvas() {
         <button type="button" onClick={()=>setView(FIT_PHOTO)} className="flex items-center gap-1 p-2 rounded hover:bg-gray-100"><Maximize size={16}/>Hele foto tonen</button>
       </div>
 
+      {photoNotice && <p role="status" className="absolute bottom-20 left-4 max-w-[60%] rounded bg-white/90 px-3 py-2 text-xs text-gray-600 pointer-events-none">{photoNotice}</p>}
       <button
          onClick={() => { setOriginalImage(''); clearMasks(); }}
          className="absolute bottom-4 right-4 bg-white/90 hover:bg-white text-red-600 px-4 py-2 rounded-md text-sm shadow-md font-medium flex items-center gap-2 transition-colors"
