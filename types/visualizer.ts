@@ -2,6 +2,8 @@ export type ProductType = 'ROLLUIKEN' | 'ZIPSCREENS' | 'KNIKARMSCHERMEN';
 
 export type SystemColor = 'RAL_9005' | 'RAL_7016' | 'RAL_9010' | 'RAL_9001';
 
+export type MountingMode = 'IN_DE_DAG' | 'OP_DE_DAG';
+
 export type FabricColor = 
   | 'LIGHT_GREY' 
   | 'ANTHRACITE' 
@@ -25,6 +27,7 @@ export interface MaskShape {
   productType: ProductType;
   systemColor: SystemColor;
   fabricColor?: FabricColor;
+  mountingMode?: MountingMode;
 }
 
 export interface ColorDefinition {
