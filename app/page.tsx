@@ -6,11 +6,13 @@ import { FacadeCanvas } from '@/components/canvas/facade-canvas';
 import { useVisualizerStore } from '@/store/visualizer-store';
 import { Toaster, toast } from 'sonner';
 import { Loader2, RotateCcw } from 'lucide-react';
+import { retainRolluikReference, type RolluikReference } from '@/lib/rolluik-reference';
 import { packRasterMask } from '@/lib/raster-mask-transfer';
 import { readGenerationResponse, serializeGenerationRequest } from '@/lib/generation-http';
 
 export default function Home() {
   const { originalImage, generatedImage, setGeneratedImage, masks, setOriginalImage, clearMasks } = useVisualizerStore();
+  const rolluikReference = useRef<{image:string;reference:RolluikReference}|null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewNotes, setPreviewNotes] = useState<string[]>([]);
   const referenceInputRef = useRef<HTMLInputElement>(null);
@@ -70,7 +72,9 @@ export default function Home() {
     setIsGenerating(true);
     toast.info("AI is gestart met genereren. Dit kan 10 tot 15 seconden duren...", { duration: 5000 });
 
+    const requestedReference=retainRolluikReference(rolluikReference.current,originalImage!,masks.filter(m=>m.productType==='ROLLUIKEN').map(m=>({coordinates:m.coordinates,mountingMode:m.mountingMode??'OP_DE_DAG'})));
     const payload = {
+      rolluikReference: requestedReference?.reference,
       image: originalImage,
       productReferenceImages: masks.some((mask) => mask.productType === "ROLLUIKEN")
         ? productReferenceFiles.map((file) => file.dataUrl)
@@ -100,6 +104,7 @@ export default function Home() {
 
       // Sla de gegenereerde foto op in de global state zodat we hem kunnen tonen
       if (data.imageUrl) {
+        rolluikReference.current=requestedReference;
         setGeneratedImage(data.imageUrl);
         setPreviewNotes(data.previewNotes ?? []);
         toast.success("Visualisatie succesvol gegenereerd!");

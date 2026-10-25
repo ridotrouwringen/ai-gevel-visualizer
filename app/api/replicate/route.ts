@@ -1,3 +1,4 @@
+import { validateRolluikReference } from '@/lib/rolluik-reference';
 import { facadeMetricHints } from "@/lib/facade-metric-hints";
 import { rolluikComponentGeometry, renderRolluikComponents } from "@/lib/rolluik-components";
 import { NextResponse } from "next/server";
@@ -550,6 +551,9 @@ export async function POST(req: Request) {
       );
     }
 
+    let referenceInput;
+    try { referenceInput=validateRolluikReference(body.rolluikReference); }
+    catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Ongeldige gevelreferentie.'},{status:400});}
     const apiKey = process.env.REPLICATE_API_TOKEN;
     if (!apiKey && selections.some(selection => selection?.productType !== "ROLLUIKEN")) {
       return NextResponse.json(
@@ -672,6 +676,10 @@ export async function POST(req: Request) {
       }
     );
 
+    const firstRolluik=preparedSelections.find(item=>item.selection.productType==='ROLLUIKEN');
+    const referenceQuad=referenceInput?.coordinates??firstRolluik?.selection.coordinates;
+    const referencePoints=referenceQuad?.length===4?normalizePerspectiveQuad(referenceQuad).map(p=>({x:p.x*width,y:p.y*height})):null;
+    const reference=referencePoints?{quad:referencePoints,hints:await facadeMetricHints(originalBuffer,referencePoints),mountingMode:referenceInput?.mountingMode??firstRolluik?.selection.mountingMode??'OP_DE_DAG' as const}:undefined;
     let currentBuffer: Buffer = originalBuffer;
     const geometryResults = new Map<string, ReturnType<typeof rolluikComponentGeometry>>();
 
@@ -824,9 +832,9 @@ export async function POST(req: Request) {
       if (isDirectRolluik && canPerspectiveWarp) {
         const frameQuad = normalizePerspectiveQuad(item.selection.coordinates).map(point => ({x:point.x*width,y:point.y*height}));
         const hints = await facadeMetricHints(originalBuffer, frameQuad);
-        const geometry = rolluikComponentGeometry(frameQuad, item.selection.mountingMode ?? "OP_DE_DAG", width, height, hints);
+        const geometry = rolluikComponentGeometry(frameQuad, item.selection.mountingMode ?? "OP_DE_DAG", width, height, hints, reference);
         const overlay = renderRolluikComponents(baseRgbProduct, alpha, geometry, width, height, {
-          filterRgb: item.selection.systemColor === "RAL_9010" || item.selection.systemColor === "RAL_9001",
+          filterRgb: true,
         });
         geometryResults.set(item.selection.id, geometry);
         overlayRgb = overlay.rgb; overlayAlpha = overlay.alpha;
