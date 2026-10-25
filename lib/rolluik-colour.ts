@@ -23,7 +23,14 @@ export function colourRolluikRgb(rgb: Buffer, alpha: Buffer, width: number, heig
       || Math.hypot(x - 17, y - 83) <= 5 || Math.hypot(x - 1246, y - 83) <= 5) continue;
     const luminance = 0.2126 * rgb[p] + 0.7152 * rgb[p + 1] + 0.0722 * rgb[p + 2];
     const paint = Math.min(1, Math.max(0, (luminance - 10) / 18));
-    const shade = Math.min(1.03, Math.pow(luminance / 105, 0.35));
+    const rawShade = Math.pow(luminance / 105, 0.35);
+    // Light paint used to flatten every highlight above ~114 source luma
+    // to one value. A smooth shoulder retains those surface gradients while
+    // keeping the established midtones and deep technical shadows unchanged.
+    const lightPaint = colour === "RAL_9010" || colour === "RAL_9001";
+    const shade = lightPaint && rawShade > 1
+      ? 1 + 0.03 * (1 - Math.exp(-(rawShade - 1) / 0.12))
+      : Math.min(1.03, rawShade);
     for (let c = 0; c < 3; c++) out[p + c] = Math.round(rgb[p + c] * (1 - paint) + Math.min(255, target[c] * shade) * paint);
   }
   return out;

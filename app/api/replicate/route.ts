@@ -825,7 +825,9 @@ export async function POST(req: Request) {
         const frameQuad = normalizePerspectiveQuad(item.selection.coordinates).map(point => ({x:point.x*width,y:point.y*height}));
         const hints = await facadeMetricHints(originalBuffer, frameQuad);
         const geometry = rolluikComponentGeometry(frameQuad, item.selection.mountingMode ?? "OP_DE_DAG", width, height, hints);
-        const overlay = renderRolluikComponents(baseRgbProduct, alpha, geometry, width, height);
+        const overlay = renderRolluikComponents(baseRgbProduct, alpha, geometry, width, height, {
+          filterRgb: item.selection.systemColor === "RAL_9010" || item.selection.systemColor === "RAL_9001",
+        });
         geometryResults.set(item.selection.id, geometry);
         overlayRgb = overlay.rgb; overlayAlpha = overlay.alpha;
         overlayWidth = overlay.width; overlayHeight = overlay.height;

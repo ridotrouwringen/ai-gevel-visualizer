@@ -92,7 +92,7 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
  * Render bounds are clipped before allocation; individual face warps are bounded
  * too. Source RGB and alpha always follow the same crop and projection.
  */
-export function renderRolluikComponents(rgb:Buffer,alpha:Buffer,geometry:ComponentGeometry,iw:number,ih:number){
+export function renderRolluikComponents(rgb:Buffer,alpha:Buffer,geometry:ComponentGeometry,iw:number,ih:number,options?:{filterRgb?:boolean}){
   if(rgb.length!==1264*1090*3||alpha.length!==1264*1090)throw Error('Onbekende rolluikasset.');
   const all=geometry.faces.flatMap(f=>f.quad);
   const left=Math.max(0,Math.floor(Math.min(...all.map(p=>p.x)))),top=Math.max(0,Math.floor(Math.min(...all.map(p=>p.y))));
@@ -105,7 +105,7 @@ export function renderRolluikComponents(rgb:Buffer,alpha:Buffer,geometry:Compone
       const s=(y+yy)*1264+x+xx,d=yy*w+xx;ca[d]=face.shade===undefined?alpha[s]:255;
       for(let c=0;c<3;c++)crgb[d*3+c]=Math.min(255,Math.round(rgb[s*3+c]*(face.shade??1)));
     }
-    const warped=perspectiveWarpRgba(crgb,ca,w,hh,face.quad,{left,top,right,bottom});
+    const warped=perspectiveWarpRgba(crgb,ca,w,hh,face.quad,{left,top,right,bottom},options?.filterRgb);
     for(let yy=0;yy<warped.height;yy++)for(let xx=0;xx<warped.width;xx++){
       const dx=warped.offsetX+xx-left,dy=warped.offsetY+yy-top;if(dx<0||dy<0||dx>=width||dy>=height)continue;
       const s=(yy*warped.width+xx)*4,d=(dy*width+dx)*4,sa=warped.rgba[s+3]/255,da=out[d+3]/255,a=sa+da*(1-sa);

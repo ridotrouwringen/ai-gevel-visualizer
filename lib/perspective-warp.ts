@@ -110,6 +110,40 @@ function sampleBilinear(
   return [Math.round(r), Math.round(g), Math.round(b), Math.round(a)];
 }
 
+type Mip = { rgb:Buffer; alpha:Buffer; width:number; height:number };
+
+/** Area averages of the original material, with transparent pixels excluded
+ * from colour. Alpha for the product silhouette is still sampled separately
+ * from the unchanged full-resolution source below.
+ */
+function colourMips(rgb:Buffer, alpha:Buffer, width:number, height:number):Mip[] {
+  const levels:Mip[]=[{rgb,alpha,width,height}];
+  while(width>1||height>1){
+    const previous=levels[levels.length-1],w=Math.ceil(width/2),h=Math.ceil(height/2);
+    const next:Mip={rgb:Buffer.alloc(w*h*3),alpha:Buffer.alloc(w*h),width:w,height:h};
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      let a=0,count=0;const sum=[0,0,0];
+      for(let yy=y*2;yy<Math.min(y*2+2,height);yy++)for(let xx=x*2;xx<Math.min(x*2+2,width);xx++){
+        const i=yy*width+xx,weight=previous.alpha[i];a+=weight;count++;
+        for(let c=0;c<3;c++)sum[c]+=previous.rgb[i*3+c]*weight;
+      }
+      const i=y*w+x;next.alpha[i]=Math.round(a/count);
+      if(a)for(let c=0;c<3;c++)next.rgb[i*3+c]=Math.round(sum[c]/a);
+    }
+    levels.push(next);width=w;height=h;
+  }
+  return levels;
+}
+function mipColour(level:Mip,x:number,y:number):number[]{
+  x=Math.max(0,Math.min(level.width-1,x));y=Math.max(0,Math.min(level.height-1,y));
+  const x0=Math.floor(x),y0=Math.floor(y),fx=x-x0,fy=y-y0,sum=[0,0,0];let alpha=0;
+  for(const [xx,yy,w]of [[x0,y0,(1-fx)*(1-fy)],[Math.min(x0+1,level.width-1),y0,fx*(1-fy)],[x0,Math.min(y0+1,level.height-1),(1-fx)*fy],[Math.min(x0+1,level.width-1),Math.min(y0+1,level.height-1),fx*fy]]){
+    const i=yy*level.width+xx,a=level.alpha[i]*w;alpha+=a;
+    for(let c=0;c<3;c++)sum[c]+=level.rgb[i*3+c]*a;
+  }
+  return alpha?sum.map(v=>v/alpha):[0,0,0];
+}
+
 export function perspectiveWarpRgba(
   sourceRgb: Buffer,
   sourceAlpha: Buffer,
@@ -117,6 +151,7 @@ export function perspectiveWarpRgba(
   sourceHeight: number,
   quad: PerspectivePoint[],
   clip?: {left:number;top:number;right:number;bottom:number},
+  filterRgb = false,
 ) {
   if (quad.length !== 4) throw new Error("Een perspectieftransformatie vereist precies vier punten.");
   if (sourceWidth < 2 || sourceHeight < 2) throw new Error("Het product is te klein voor een perspectieftransformatie.");
@@ -136,6 +171,7 @@ export function perspectiveWarpRgba(
   }));
   const homography = destinationToSourceHomography(destination, sourceWidth, sourceHeight);
   const rgba = Buffer.alloc(width * height * 4);
+  const mips = filterRgb ? colourMips(sourceRgb, sourceAlpha, sourceWidth, sourceHeight) : null;
 
   for (let y = 0; y < height; y++) {
     const dy = y + 0.5;
@@ -147,7 +183,23 @@ export function perspectiveWarpRgba(
 
       const sx = (homography[0] * dx + homography[1] * dy + homography[2]) / denominator;
       const sy = (homography[3] * dx + homography[4] * dy + homography[5]) / denominator;
-      const [r, g, b, a] = sampleBilinear(sourceRgb, sourceAlpha, sourceWidth, sourceHeight, sx, sy);
+      let [r, g, b, a] = sampleBilinear(sourceRgb, sourceAlpha, sourceWidth, sourceHeight, sx, sy);
+      if(mips && a>0){
+        // Local inverse-homography Jacobian: how many source texels cover this
+        // destination pixel? Trilinear LOD avoids aliasing without sharpening
+        // halos, inventing lamellae or changing alpha/geometry.
+        const dsx=(homography[0]-sx*homography[6])/denominator;
+        const dsy=(homography[3]-sy*homography[6])/denominator;
+        const dtx=(homography[1]-sx*homography[7])/denominator;
+        const dty=(homography[4]-sy*homography[7])/denominator;
+        const lod=Math.min(mips.length-1,Math.log2(Math.max(1,Math.hypot(dsx,dsy),Math.hypot(dtx,dty))));
+        if(lod>0){
+          const low=Math.floor(lod),high=Math.min(mips.length-1,low+1),blend=lod-low;
+          const c0=mipColour(mips[low],(sx+.5)/2**low-.5,(sy+.5)/2**low-.5);
+          const c1=mipColour(mips[high],(sx+.5)/2**high-.5,(sy+.5)/2**high-.5);
+          [r,g,b]=c0.map((v,c)=>Math.round(v*(1-blend)+c1[c]*blend));
+        }
+      }
 
       rgba[outputIndex] = r;
       rgba[outputIndex + 1] = g;
