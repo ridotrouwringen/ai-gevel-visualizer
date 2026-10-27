@@ -6,6 +6,7 @@ import { UploadCloud, Trash2, Crosshair, ZoomIn, ZoomOut, Hand, Maximize } from 
 import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, ProductType, SystemColor, FabricColor } from '@/types/visualizer';
 
 import { prepareFacadePhoto } from '@/lib/photo-upload';
+import { useSelectionPerspective, PerspectiveCheckOverlay, PerspectiveCheckPanel } from './selection-perspective';
 
 import { FIT_PHOTO, MAX_PHOTO_ZOOM, constrainPhotoView, zoomPhotoAt, photoPointFromClient, type PhotoView } from '@/lib/photo-viewport';
 
@@ -56,6 +57,7 @@ export function FacadeCanvas() {
   // Debug view: this is the exact raster mask stored in Zustand and sent
   // unchanged to /api/replicate as selection.rasterMasks.
   const [showGenerationMask, setShowGenerationMask] = useState(true);
+  const [showPerspective,setShowPerspective]=useState(true);
   const [view, setView] = useState<PhotoView>(FIT_PHOTO);
   const [panMode, setPanMode] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -68,6 +70,11 @@ export function FacadeCanvas() {
   const [isPreparingPhoto, setIsPreparingPhoto] = useState(false);
   const [photoNotice, setPhotoNotice] = useState<string | null>(null);
   const uploadRequest = useRef(0);
+  const completeSelections=masks.filter(mask=>mask.coordinates.length===4);
+  const perspectiveSelection=polygonPoints.length===0&&activeProduct!=='KNIKARMSCHERMEN'
+    ?completeSelections.find(mask=>mask.id===selectedMaskId)??completeSelections[completeSelections.length-1]
+    :undefined;
+  const perspective=useSelectionPerspective(originalImage,perspectiveSelection?.coordinates,showPerspective);
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -629,8 +636,15 @@ export function FacadeCanvas() {
           className={`absolute top-0 left-0 w-full h-full rounded-sm ${panMode || spaceHeld ? 'cursor-grab' : 'cursor-crosshair'}`}
           style={{ touchAction: 'none' }}
         />
+        <PerspectiveCheckOverlay result={perspective.result}/>
         </div>
       </div>
+
+      {activeProduct!=='KNIKARMSCHERMEN'&&<PerspectiveCheckPanel
+        enabled={showPerspective} onToggle={()=>setShowPerspective(v=>!v)}
+        hasSelection={!!perspectiveSelection} sequence={perspectiveSelection?.sequenceNumber}
+        state={perspective.state} onRetry={perspective.retry}/>
+      }
 
       {masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (
         <button
