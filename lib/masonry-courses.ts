@@ -10,6 +10,8 @@ export type MasonryResult = {
   coordinates:Point[]; width:number; height:number; patches:MasonryPatch[];
   status:'agreement'|'limited'|'unconfirmed'; agreeingPatches:number; layersOverSelection:number|null;
 };
+export type SavedMasonryCheck = { key:string; status:'checking'|'done'|'error'; result?:MasonryResult; error?:string };
+
 const median=(a:number[])=>{const b=[...a].sort((x,y)=>x-y);return b.length?(b[Math.floor((b.length-1)/2)]+b[Math.floor(b.length/2)])/2:0;};
 
 /** Repetition detector only: it cannot distinguish masonry from horizontal cladding.

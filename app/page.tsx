@@ -3,6 +3,7 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { ProductSelector } from '@/components/configurator/product-selector';
 import { FacadeCanvas } from '@/components/canvas/facade-canvas';
+import { MasonryResultSummary } from '@/components/canvas/masonry-result-summary';
 import { useVisualizerStore } from '@/store/visualizer-store';
 import { Toaster, toast } from 'sonner';
 import { Loader2, RotateCcw } from 'lucide-react';
@@ -191,24 +192,25 @@ export default function Home() {
         </header>
 
         <div className="flex-1 p-6 relative flex items-center justify-center bg-gray-100 overflow-auto">
-          {generatedImage ? (
+          <div style={{display:generatedImage?'none':'contents'}}>
+            <FacadeCanvas />
+          </div>
+          {generatedImage && (
             // Als de AI klaar is tonen we het resultaat
             <div className="relative w-full h-full flex flex-col items-center justify-center bg-gray-200 rounded-xl overflow-hidden shadow-inner p-4">
               <img 
                 src={generatedImage} 
                 alt="AI Resultaat Zonwering" 
-                className="max-w-full max-h-[65vh] object-contain shadow-md rounded-sm"
+                className="min-h-0 max-w-full max-h-[60vh] shrink object-contain shadow-md rounded-sm"
               />
               <div className="absolute top-4 left-4 bg-blue-600 text-white px-4 py-2 rounded-md text-sm shadow-lg font-medium">
                 Indicatieve visualisatie
               </div>
+              <MasonryResultSummary />
               {previewNotes.length > 0 && <div role="status" className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
                 {previewNotes.map(note => <p key={note} className="mb-1 last:mb-0">{note}</p>)}
               </div>}
             </div>
-          ) : (
-            // Anders tonen we het normale interactieve canvas
-            <FacadeCanvas />
           )}
         </div>
 

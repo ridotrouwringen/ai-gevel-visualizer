@@ -68,3 +68,27 @@ React-controle: uitsluitend type-import van het analysemodel in de client, geen 
 in de browserbundel, begrensde cache, annulering/debounce, status en knoplabels,
 geen mutaties in Zustand door de nieuwe analyse. De bestaande perspectiefanalyse,
 selectie- en productgeometrie zijn niet gewijzigd. Alleen stabilisatie publiceren.
+
+## Telling behouden bij gegenereerd resultaat — 28 oktober 2026
+
+De laagtelling verdween doordat Home het fotocanvas na genereren unmountte.
+Het canvas blijft nu verborgen gemount terwijl het resultaat zichtbaar is. Daardoor
+blijven ook de knopstand, cache, zoom en een eventuele lopende analyse behouden.
+De analyse-status wordt bovendien per selectie in de bestaande sessiestore bewaard.
+Een samenvatting onder de gegenereerde afbeelding toont per kozijn de schatting en
+strookaantallen, of expliciet: nog niet geteld / telling bezig / geen overeenkomst /
+telling mislukt. De gegevens komen uit de oorspronkelijke foto, niet uit de generatie.
+
+Resultaten zijn gekoppeld aan selectie-ID en exacte hoekpunten. Wijzigen van hoeken,
+verwijderen van een selectie, wissen en een nieuwe foto maken oude gegevens ongeldig.
+Late antwoorden voor een eerdere foto of selectie worden geweigerd. Kleur- en
+montagewijzigingen vereisen geen nieuwe telling. De telling wijzigt de generatiepayload,
+productgeometrie of productrender niet.
+
+Validatie: 91/91 tests en schone Next-build. Aanvullende echte browserflow met echte
+/api/masonry-analyse en een onderschepte /api/replicate-succesrespons om uitsluitend de
+weergaveovergang te testen, zonder modelcall: tellen starten → genereren terwijl de
+analyse nog loopt → lopende status in resultaat → 19 lagen zichtbaar → origineel met
+behouden overlay → tweede ongetelde selectie → resultaat toont 19 en 'nog niet geteld'
+voor de juiste kozijnen → nieuwe foto toont geen oude telling. Eén analyseverzoek;
+geen page-errors. Dit is geen nieuwe verificatie van de generatiebackend.

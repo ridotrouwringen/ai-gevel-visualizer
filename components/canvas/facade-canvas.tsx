@@ -42,7 +42,7 @@ export function FacadeCanvas() {
   const {
     originalImage, setOriginalImage, clearMasks, masks, addMask,
     activeProduct, activeSystemColor, activeFabricColor, selectedMaskId, selectMask, updateMask,
-    activeMountingMode: mountingMode, setActiveMountingMode: setMountingMode
+    activeMountingMode: mountingMode, setActiveMountingMode: setMountingMode, setMasonryCheck
   } = useVisualizerStore();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -78,6 +78,12 @@ export function FacadeCanvas() {
     :undefined;
   const perspective=useSelectionPerspective(originalImage,perspectiveSelection?.coordinates,showPerspective);
   const masonry=useMasonryCourses(originalImage,perspectiveSelection?.coordinates,showMasonry);
+
+  useEffect(()=>{
+    if(!masonry.state||!perspectiveSelection||!originalImage)return;
+    const {key,status,result,error}=masonry.state;
+    setMasonryCheck(perspectiveSelection.id,originalImage,{key,status,result,error});
+  },[masonry.state,perspectiveSelection?.id,originalImage,setMasonryCheck]);
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
