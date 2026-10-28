@@ -59,8 +59,8 @@ export function MasonryCourseControls({enabled,onToggle,hasSelection,state,onRet
       {result&&<>
         <p className="font-semibold">{result.layersOverSelection!==null?`Circa ${result.layersOverSelection.toLocaleString('nl-NL',{maximumFractionDigits:1})} lagen over de selectiehoogte`:'Nog geen overeenkomende telling uit meerdere stroken'}</p>
         <p>{result.agreeingPatches>=2?`${result.agreeingPatches} stroken hebben een vergelijkbare laagafstand.`:'Onvoldoende bevestiging; controleer de stroken.'}</p>
-        <ul className="space-y-1">{result.patches.map(p=><li key={p.id}><span className="font-medium">{p.label}:</span> {p.joints.length?`${p.joints.length} voegen · ${p.intervals} volledige laagafstanden${result.layersOverSelection!==null&&p.period!==null&&Math.abs(p.period*result.layersOverSelection-1)>.15?' · afwijkende laagafstand':''}` :p.reason}</li>)}</ul>
-        <p className="text-slate-600">Experimenteel: controleer of roze lijnen echt voegen volgen en op dezelfde gevelzijde liggen. Bekleding kan ook herhalen. Een deel van een laag aan de boven- of onderrand telt mee in de schatting. Geen millimetermaten.</p>
+        <details><summary className="cursor-pointer">Volledige laagafstanden per strook</summary><ul className="mt-1 space-y-1">{result.patches.map(p=><li key={p.id}><span className="font-medium">{p.label}:</span> {p.joints.length?`${p.intervals} volledige laagafstanden · ${p.joints.length} voegen${result.layersOverSelection!==null&&p.period!==null&&Math.abs(p.period*result.layersOverSelection-1)>.15?' · afwijkende laagafstand':''}` :p.reason}</li>)}</ul></details>
+        <p className="text-slate-600">Experimenteel: controleer of roze lijnen echt voegen volgen en op dezelfde gevelzijde liggen. Bekleding kan ook herhalen. Een deel van een laag aan de boven- of onderrand telt mee in de schatting. Bij genereren schalen we met 60 mm per laag als testuitgangspunt.</p>
       </>}
     </div>}
   </div>;

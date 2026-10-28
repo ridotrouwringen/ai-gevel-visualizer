@@ -1,3 +1,4 @@
+import { TEST_COURSE_HEIGHT_MM, SLAT_HEIGHT_MM } from './masonry-scale';
 import { inReferencePlane } from './rolluik-reference';
 import { perspectiveWarpRgba, projectHomography, unitQuadHomography, type PerspectivePoint as Point } from './perspective-warp';
 import type { MetricHints } from './facade-metric-hints';
@@ -5,7 +6,7 @@ import type { MountingMode } from '../types/visualizer';
 
 // Product-owner specification, 20 October 2026. Approved material retained;
 // its 45mm visual allowance is not an approved manufacturing specification.
-export const COMPONENT_DIMENSIONS = { cassetteHeight:180, cassetteDepth:180, guideWidth:50, bottomAllowance:45 } as const;
+export const COMPONENT_DIMENSIONS = { cassetteHeight:180, cassetteDepth:180, guideWidth:50, bottomAllowance:45, slatHeight:SLAT_HEIGHT_MM } as const;
 type XYZ = [number,number,number];
 type Face = { name:string; quad:Point[]; texture:[number,number,number,number]; shade?:number };
 export type ComponentGeometry = {
@@ -45,21 +46,23 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
     const a=quad[i],b=quad[(i+1)%4],c=quad[(i+2)%4];
     if((b.x-a.x)*(c.y-b.y)-(b.y-a.y)*(c.x-b.x)<=1e-8)throw Error('Ongeldige kozijncontour.');
   }
-  const h=unitQuadHomography(quad);let known=hints.scaleSource==='repetition-60mm-assumption'&&hints.courseUnit!==null&&hints.courseUnit>0;
+  const h=unitQuadHomography(quad);let scaleSource=hints.scaleSource;
+  let known=scaleSource!=='unknown'&&hints.courseUnit!==null&&Number.isFinite(hints.courseUnit)&&hints.courseUnit>0;
+  if(!known)scaleSource='unknown';
   // 1500 is an explicitly unmeasured style basis when no repeat cue exists.
   // It must never be emitted as a measured frame height.
-  let H=known?60/hints.courseUnit!:1500;
+  let H=known?TEST_COURSE_HEIGHT_MM/hints.courseUnit!:1500;
   const screenW=(length([quad[1].x-quad[0].x,quad[1].y-quad[0].y])+length([quad[2].x-quad[3].x,quad[2].y-quad[3].y]))/2;
   const screenH=(length([quad[3].x-quad[0].x,quad[3].y-quad[0].y])+length([quad[2].x-quad[1].x,quad[2].y-quad[1].y]))/2;
   let pose=camera(h,iw,ih,H),W=pose?.W??H*screenW/screenH;
   let referenceHeight=H,referenceMode=mode,referenceStatus:ComponentGeometry['referenceStatus'];
   if(reference){
     const plane=inReferencePlane(reference.quad,quad);
-    if(plane){
+    if(plane&&(reference.hints.scaleSource!=='unknown'||!known)&&!(scaleSource==='masonry-count-60mm-assumption'&&reference.hints.scaleSource==='repetition-60mm-assumption')){
       const base=rolluikComponentGeometry(reference.quad,reference.mountingMode,iw,ih,reference.hints);
       referenceHeight=base.frameHeightBasis;referenceMode=reference.mountingMode;
       H=referenceHeight*plane.height;W=base.frameWidthBasis*plane.width;
-      known=base.scaleSource==='repetition-60mm-assumption';referenceStatus='shared';
+      scaleSource=base.scaleSource;known=scaleSource!=='unknown';referenceStatus='shared';
       const referencePose=camera(unitQuadHomography(reference.quad),iw,ih,referenceHeight);
       const origin=[plane.x*base.frameWidthBasis,plane.y*referenceHeight];
       pose=plane.x===0&&plane.y===0&&plane.width===1&&plane.height===1?referencePose:referencePose?{W,project:(p:XYZ)=>{
@@ -67,10 +70,10 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
         const front=referencePose.project([origin[0]+p[0],origin[1]+p[1],p[2]]),back=referencePose.project([origin[0]+p[0],origin[1]+p[1],0]);
         return {x:wall.x+front.x-back.x,y:wall.y+front.y-back.y};
       }}:null;
-    }else referenceStatus='separate-plane';
+    }else if(!plane)referenceStatus='separate-plane';
   }
   const notes=['Indicatieve preview: schaal en camerahoek zijn niet gevalideerd. Geen maatberekening.'];
-  notes.push(known?'De verhouding is gebaseerd op herhaling in de gevel met een aangenomen laaghoogte van 6 cm.':'Geen bruikbare schaalreferentie gevonden; productmaten worden alleen als visuele verhouding getoond.');
+  notes.push(scaleSource==='masonry-count-60mm-assumption'?'Schaal uit getelde steenlagen: testuitgangspunt 60 mm per laag inclusief voeg. Kast 180 mm hoog en diep (3 lagen); lamellen 45 mm (¾ laag).':known?'De verhouding is gebaseerd op herhaling in de gevel met een aangenomen laaghoogte van 6 cm.':'Geen bruikbare schaalreferentie gevonden; productmaten worden alleen als visuele verhouding getoond.');
   if(referenceStatus==='shared')notes.push('Kast, geleiders en lamellen gebruiken dezelfde vaste verhouding op dit gevelvlak.');
   if(referenceStatus==='separate-plane')notes.push('Dit kozijn heeft een andere gevelrichting; de verhouding is afzonderlijk indicatief.');
   if(!Number.isFinite(H)||H<400||H>15000||!Number.isFinite(W)||W<250||W>20000)throw Error('De geschatte schaal is niet bruikbaar. Kies een duidelijker kozijn.');
@@ -107,9 +110,11 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
   if(mode==='IN_DE_DAG')notes.push('De werkelijke diepte van de negge is niet uit de foto vastgesteld.');
   const bodyHeight=H-COMPONENT_DIMENSIONS.bottomAllowance-(mode==='IN_DE_DAG'?COMPONENT_DIMENSIONS.cassetteHeight:0);
   const referenceBody=referenceHeight-COMPONENT_DIMENSIONS.bottomAllowance-(referenceMode==='IN_DE_DAG'?COMPONENT_DIMENSIONS.cassetteHeight:0);
-  const curtainTextureRows=referenceStatus==='shared'?Math.max(2,Math.round(885*bodyHeight/referenceBody)):885;
+  const curtainTextureRows=scaleSource==='masonry-count-60mm-assumption'
+    ?Math.max(2,Math.round(bodyHeight/COMPONENT_DIMENSIONS.slatHeight*(623/15)))
+    :referenceStatus==='shared'?Math.max(2,Math.round(885*bodyHeight/referenceBody)):885;
   if(curtainTextureRows>12000)throw Error('De hoogteverhouding is te groot voor een betrouwbare preview.');
-  return {faces,curtainTextureRows,referenceStatus,frameWidthBasis:W,frameHeightBasis:H,scaleSource:known?'repetition-60mm-assumption':'unknown',cameraStatus:pose?'assumed':'unavailable',metricStatus:'indicative',dimensions:COMPONENT_DIMENSIONS,notes};
+  return {faces,curtainTextureRows,referenceStatus,frameWidthBasis:W,frameHeightBasis:H,scaleSource:known?scaleSource:'unknown',cameraStatus:pose?'assumed':'unavailable',metricStatus:'indicative',dimensions:COMPONENT_DIMENSIONS,notes};
 }
 
 /** One silhouette overlay, retaining source materials and reference lamella pitch.

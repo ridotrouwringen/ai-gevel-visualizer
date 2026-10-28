@@ -42,3 +42,8 @@ test('valid success and structured API errors keep existing behavior',async()=>{
  assert.deepEqual(await readGenerationResponse(Response.json({imageUrl:'data:image/png;base64,AAAA'})),{imageUrl:'data:image/png;base64,AAAA'});
  await assert.rejects(readGenerationResponse(Response.json({error:'Selectie is ongeldig'},{status:400})),/Selectie is ongeldig/);
 });
+test('generation response carries the server course count back to the result summary',async()=>{
+ const masonry={coordinates:[{x:.2,y:.2},{x:.4,y:.2},{x:.4,y:.6},{x:.2,y:.6}],patches:[],status:'agreement',agreeingPatches:2,layersOverSelection:42,width:800,height:600};
+ const r=await readGenerationResponse(Response.json({imageUrl:'data:image/png;base64,AAAA',results:[{id:'frame',masonry},{id:7,masonry},null]}));
+ assert.deepEqual(r.results,[{id:'frame',masonry}]);
+});

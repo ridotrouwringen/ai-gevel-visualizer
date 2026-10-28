@@ -1,5 +1,7 @@
 import { validateRolluikReference } from '@/lib/rolluik-reference';
-import { facadeMetricHints } from "@/lib/facade-metric-hints";
+import { facadeCourseAnalysis } from "@/lib/masonry-analysis";
+import { masonryScaleHints } from "@/lib/masonry-scale";
+import type { MasonryResult } from "@/lib/masonry-courses";
 import { rolluikComponentGeometry, renderRolluikComponents } from "@/lib/rolluik-components";
 import { NextResponse } from "next/server";
 import Replicate from "replicate";
@@ -679,8 +681,9 @@ export async function POST(req: Request) {
     const firstRolluik=preparedSelections.find(item=>item.selection.productType==='ROLLUIKEN');
     const referenceQuad=referenceInput?.coordinates??firstRolluik?.selection.coordinates;
     const referencePoints=referenceQuad?.length===4?normalizePerspectiveQuad(referenceQuad).map(p=>({x:p.x*width,y:p.y*height})):null;
-    const reference=referencePoints?{quad:referencePoints,hints:await facadeMetricHints(originalBuffer,referencePoints),mountingMode:referenceInput?.mountingMode??firstRolluik?.selection.mountingMode??'OP_DE_DAG' as const}:undefined;
+    const reference=referencePoints?{quad:referencePoints,hints:masonryScaleHints(await facadeCourseAnalysis(originalBuffer,referenceQuad!)),mountingMode:referenceInput?.mountingMode??firstRolluik?.selection.mountingMode??'OP_DE_DAG' as const}:undefined;
     let currentBuffer: Buffer = originalBuffer;
+    const masonryResults = new Map<string,MasonryResult>();
     const geometryResults = new Map<string, ReturnType<typeof rolluikComponentGeometry>>();
 
     for (let index = 0; index < generated.length; index++) {
@@ -831,7 +834,9 @@ export async function POST(req: Request) {
 
       if (isDirectRolluik && canPerspectiveWarp) {
         const frameQuad = normalizePerspectiveQuad(item.selection.coordinates).map(point => ({x:point.x*width,y:point.y*height}));
-        const hints = await facadeMetricHints(originalBuffer, frameQuad);
+        const masonry = await facadeCourseAnalysis(originalBuffer, item.selection.coordinates);
+        masonryResults.set(item.selection.id,masonry);
+        const hints = masonryScaleHints(masonry);
         const geometry = rolluikComponentGeometry(frameQuad, item.selection.mountingMode ?? "OP_DE_DAG", width, height, hints, reference);
         const overlay = renderRolluikComponents(baseRgbProduct, alpha, geometry, width, height, {
           filterRgb: true,
@@ -959,6 +964,7 @@ export async function POST(req: Request) {
     const results = generated.map((item) => ({
       id: item!.selection.id,
       productType: item!.selection.productType,
+      ...(masonryResults.has(item!.selection.id)?{masonry:masonryResults.get(item!.selection.id)}:{}),
       ...(geometryResults.has(item!.selection.id) ? {geometry: geometryResults.get(item!.selection.id)} : {}),
     }));
 

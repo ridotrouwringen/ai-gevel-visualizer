@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { projectHomography, unitQuadHomography, type PerspectivePoint } from './perspective-warp';
 
 export type MetricHints = {
-  scaleSource: 'repetition-60mm-assumption' | 'unknown';
+  scaleSource: 'repetition-60mm-assumption' | 'masonry-count-60mm-assumption' | 'unknown';
   courseUnit: number | null;
   patches: {name:string; period:number; score:number; method:number}[];
 };

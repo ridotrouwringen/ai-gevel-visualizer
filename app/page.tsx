@@ -12,7 +12,7 @@ import { packRasterMask } from '@/lib/raster-mask-transfer';
 import { readGenerationResponse, serializeGenerationRequest } from '@/lib/generation-http';
 
 export default function Home() {
-  const { originalImage, generatedImage, setGeneratedImage, masks, setOriginalImage, clearMasks } = useVisualizerStore();
+  const { originalImage, generatedImage, setGeneratedImage, masks, setOriginalImage, clearMasks, setMasonryCheck } = useVisualizerStore();
   const rolluikReference = useRef<{image:string;reference:RolluikReference}|null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewNotes, setPreviewNotes] = useState<string[]>([]);
@@ -106,6 +106,9 @@ export default function Home() {
       // Sla de gegenereerde foto op in de global state zodat we hem kunnen tonen
       if (data.imageUrl) {
         rolluikReference.current=requestedReference;
+        if(Array.isArray(data.results))for(const result of data.results){
+          if(result.masonry?.coordinates&&typeof result.id==='string')setMasonryCheck(result.id,originalImage,{key:JSON.stringify(result.masonry.coordinates),status:'done',result:result.masonry});
+        }
         setGeneratedImage(data.imageUrl);
         setPreviewNotes(data.previewNotes ?? []);
         toast.success("Visualisatie succesvol gegenereerd!");
