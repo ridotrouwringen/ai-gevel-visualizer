@@ -7,6 +7,7 @@ import { SYSTEM_COLORS, ZIPSCREEN_FABRICS, AWNING_FABRICS, ProductType, SystemCo
 
 import { prepareFacadePhoto } from '@/lib/photo-upload';
 import { useSelectionPerspective, PerspectiveCheckOverlay, PerspectiveCheckPanel } from './selection-perspective';
+import { useMasonryCourses, MasonryCourseControls, MasonryCourseOverlay } from './masonry-courses';
 
 import { FIT_PHOTO, MAX_PHOTO_ZOOM, constrainPhotoView, zoomPhotoAt, photoPointFromClient, type PhotoView } from '@/lib/photo-viewport';
 
@@ -58,6 +59,7 @@ export function FacadeCanvas() {
   // unchanged to /api/replicate as selection.rasterMasks.
   const [showGenerationMask, setShowGenerationMask] = useState(true);
   const [showPerspective,setShowPerspective]=useState(true);
+  const [showMasonry,setShowMasonry]=useState(false);
   const [view, setView] = useState<PhotoView>(FIT_PHOTO);
   const [panMode, setPanMode] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -75,6 +77,7 @@ export function FacadeCanvas() {
     ?completeSelections.find(mask=>mask.id===selectedMaskId)??completeSelections[completeSelections.length-1]
     :undefined;
   const perspective=useSelectionPerspective(originalImage,perspectiveSelection?.coordinates,showPerspective);
+  const masonry=useMasonryCourses(originalImage,perspectiveSelection?.coordinates,showMasonry);
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -637,13 +640,16 @@ export function FacadeCanvas() {
           style={{ touchAction: 'none' }}
         />
         <PerspectiveCheckOverlay result={perspective.result}/>
+        <MasonryCourseOverlay result={masonry.result}/>
         </div>
       </div>
 
       {activeProduct!=='KNIKARMSCHERMEN'&&<PerspectiveCheckPanel
         enabled={showPerspective} onToggle={()=>setShowPerspective(v=>!v)}
         hasSelection={!!perspectiveSelection} sequence={perspectiveSelection?.sequenceNumber}
-        state={perspective.state} onRetry={perspective.retry}/>
+        state={perspective.state} onRetry={perspective.retry}>
+        <MasonryCourseControls enabled={showMasonry} onToggle={()=>setShowMasonry(v=>!v)} hasSelection={!!perspectiveSelection} state={masonry.state} onRetry={masonry.retry}/>
+      </PerspectiveCheckPanel>
       }
 
       {masks.some((mask) => mask.type === 'RASTER_MASK' && mask.rasterMasks?.length) && (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PerspectiveConfirmation, Point } from '@/lib/perspective-confirmation';
 
 type CheckState={image:string;key:string;status:'checking'|'done'|'error';result?:PerspectiveConfirmation;error?:string};
@@ -54,11 +54,11 @@ export function PerspectiveCheckOverlay({result}:{result:PerspectiveConfirmation
   </svg>;
 }
 
-export function PerspectiveCheckPanel({enabled,onToggle,hasSelection,sequence,state,onRetry}:{enabled:boolean;onToggle:()=>void;hasSelection:boolean;sequence:number|undefined;state:CheckState|null;onRetry:()=>void}){
+export function PerspectiveCheckPanel({enabled,onToggle,hasSelection,sequence,state,onRetry,children}:{enabled:boolean;onToggle:()=>void;hasSelection:boolean;sequence:number|undefined;state:CheckState|null;onRetry:()=>void;children?:ReactNode}){
   const [expanded,setExpanded]=useState(true);
   const result=state?.status==='done'?state.result:undefined;
   const label=(count:number)=>count>=2?`${count} extra lijnen ondersteunen de richting`:count===1?'1 extra lijn gevonden':'Geen extra bevestiging gevonden';
-  return <section aria-label="Perspectiefcontrole" className="absolute bottom-20 right-4 z-20 w-72 max-w-[45%] rounded-lg border border-slate-300 bg-white/95 p-3 text-xs text-slate-800 shadow-lg">
+  return <section aria-label="Perspectiefcontrole" className="absolute bottom-20 right-4 z-20 w-80 max-w-[55%] max-h-[65vh] overflow-y-auto rounded-lg border border-slate-300 bg-white/95 p-3 text-xs text-slate-800 shadow-lg">
     <div className="flex items-center justify-between gap-2">
       <button type="button" aria-expanded={expanded} onClick={()=>setExpanded(v=>!v)} className="text-left font-semibold">Perspectief{sequence?` · selectie ${sequence}`:''} {expanded?'▾':'▸'}</button>
       <button type="button" aria-pressed={enabled} onClick={onToggle} className={`rounded px-2 py-1 font-medium ${enabled?'bg-emerald-100 text-emerald-900':'bg-slate-100'}`}>{enabled?'Lijnen aan':'Lijnen uit'}</button>
@@ -76,6 +76,7 @@ export function PerspectiveCheckPanel({enabled,onToggle,hasSelection,sequence,st
           <p className="text-slate-600">Je selectie blijft behouden. Deze controle bepaalt geen millimetermaten.</p>
         </>}
       </div>}
+      {children}
     </>}
   </section>;
 }
