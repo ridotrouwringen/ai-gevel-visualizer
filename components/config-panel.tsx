@@ -91,7 +91,7 @@ export function ConfigPanel({ spot, applyToAll, onApplyToAllChange, onUpdate }: 
       <ColorGroup
         title="Kleur doek"
         colors={FABRIC_COLORS}
-        value={spot.fabricColor}
+        value={spot.fabricColor ?? ""}
         onChange={(hex) => onUpdate({ fabricColor: hex })}
       />
 
