@@ -1,0 +1,114 @@
+{
+  "actualBrowserAndGenerationAPI": true,
+  "externalModelCalls": false,
+  "cases": [
+    {
+      "file": "20261005_144548.jpg",
+      "layers": 23.764705882352942,
+      "frameHeightBasis": 1425.8823529411766,
+      "source": "masonry-count-60mm-assumption",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      },
+      "textureRows": 1275,
+      "camera": "unavailable",
+      "unchangedOutsidePixels": 2310174
+    },
+    {
+      "file": "20261005_145347.jpg",
+      "layers": 19,
+      "frameHeightBasis": 1140,
+      "source": "masonry-count-60mm-assumption",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      },
+      "textureRows": 1011,
+      "camera": "assumed",
+      "unchangedOutsidePixels": 2280224
+    },
+    {
+      "file": "20261005_145745.jpg",
+      "layers": 28.400000000000006,
+      "frameHeightBasis": 1704.0000000000002,
+      "source": "masonry-count-60mm-assumption",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      },
+      "textureRows": 1531,
+      "camera": "assumed",
+      "unchangedOutsidePixels": 2236352
+    }
+  ],
+  "colours": [
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9005",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 1011
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_7016",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 1011
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9010",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 1011
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9001",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 1011
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9005",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 845
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_7016",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 845
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9010",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 845
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9001",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 845
+    }
+  ],
+  "blankScaleUnknown": true,
+  "pageErrors": []
+}

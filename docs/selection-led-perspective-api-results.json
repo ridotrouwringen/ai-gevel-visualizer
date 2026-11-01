@@ -1,0 +1,142 @@
+{
+  "cases": [
+    {
+      "image": "Test 001.png",
+      "status": 200,
+      "h": 5,
+      "v": 2,
+      "pointsPreserved": true,
+      "ms": 335,
+      "warmMs": null
+    },
+    {
+      "image": "Test 002.jpg",
+      "status": 200,
+      "h": 0,
+      "v": 5,
+      "pointsPreserved": true,
+      "ms": 228,
+      "warmMs": 10
+    },
+    {
+      "image": "Test 003.jpg",
+      "status": 200,
+      "h": 5,
+      "v": 1,
+      "pointsPreserved": true,
+      "ms": 231,
+      "warmMs": null
+    },
+    {
+      "image": "Test 004.jpg",
+      "status": 200,
+      "h": 5,
+      "v": 4,
+      "pointsPreserved": true,
+      "ms": 225,
+      "warmMs": null
+    },
+    {
+      "image": "Test 005.jpg",
+      "status": 200,
+      "h": 0,
+      "v": 2,
+      "pointsPreserved": true,
+      "ms": 116,
+      "warmMs": null
+    },
+    {
+      "image": "Test 006.jpg",
+      "status": 200,
+      "h": 3,
+      "v": 0,
+      "pointsPreserved": true,
+      "ms": 90,
+      "warmMs": null
+    },
+    {
+      "image": "Test 007.jpg",
+      "status": 200,
+      "h": 3,
+      "v": 0,
+      "pointsPreserved": true,
+      "ms": 253,
+      "warmMs": null
+    },
+    {
+      "image": "Test 008.jpg",
+      "status": 200,
+      "h": 2,
+      "v": 3,
+      "pointsPreserved": true,
+      "ms": 179,
+      "warmMs": null
+    },
+    {
+      "image": "Test 009.jpg",
+      "status": 200,
+      "h": 5,
+      "v": 2,
+      "pointsPreserved": true,
+      "ms": 146,
+      "warmMs": null
+    },
+    {
+      "image": "Test 010.jpg",
+      "status": 200,
+      "h": 0,
+      "v": 0,
+      "pointsPreserved": true,
+      "ms": 190,
+      "warmMs": null
+    },
+    {
+      "image": "Test 011.jpg",
+      "status": 200,
+      "h": 2,
+      "v": 0,
+      "pointsPreserved": true,
+      "ms": 243,
+      "warmMs": null
+    },
+    {
+      "image": "Test 012.jpg",
+      "status": 200,
+      "h": 3,
+      "v": 4,
+      "pointsPreserved": true,
+      "ms": 144,
+      "warmMs": null
+    },
+    {
+      "image": "Test 013.jpg",
+      "status": 200,
+      "h": 1,
+      "v": 2,
+      "pointsPreserved": true,
+      "ms": 124,
+      "warmMs": null
+    },
+    {
+      "image": "Test 014.jpg",
+      "status": 200,
+      "h": 5,
+      "v": 3,
+      "pointsPreserved": true,
+      "ms": 140,
+      "warmMs": null
+    },
+    {
+      "image": "Test 015.jpg",
+      "status": 200,
+      "h": 5,
+      "v": 0,
+      "pointsPreserved": true,
+      "ms": 115,
+      "warmMs": null
+    }
+  ],
+  "invalidRequestsRejected": true,
+  "blankPhotoUnconfirmed": true,
+  "serverStarted": true
+}

@@ -1,0 +1,131 @@
+{
+  "realBrowserAndAPI": true,
+  "neutralWallFixture": true,
+  "operatorReconstructedPoints": true,
+  "originalUserClicksUnavailable": true,
+  "oldUnscaledHeight": 600,
+  "newUnscaledHeight": 1500,
+  "rows": [
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_7016",
+      "frameHeightBasis": 1500,
+      "source": "unknown",
+      "reference": "unscaled",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      }
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9010",
+      "frameHeightBasis": 1500,
+      "source": "unknown",
+      "reference": "unscaled",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      }
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9001",
+      "frameHeightBasis": 1500,
+      "source": "unknown",
+      "reference": "unscaled",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      }
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9005",
+      "frameHeightBasis": 1500,
+      "source": "unknown",
+      "reference": "unscaled",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      }
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_7016",
+      "frameHeightBasis": 1500,
+      "source": "unknown",
+      "reference": "unscaled",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      }
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9010",
+      "frameHeightBasis": 1500,
+      "source": "unknown",
+      "reference": "unscaled",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      }
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9001",
+      "frameHeightBasis": 1500,
+      "source": "unknown",
+      "reference": "unscaled",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      }
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9005",
+      "frameHeightBasis": 1500,
+      "source": "unknown",
+      "reference": "unscaled",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      }
+    }
+  ],
+  "pageErrors": []
+}

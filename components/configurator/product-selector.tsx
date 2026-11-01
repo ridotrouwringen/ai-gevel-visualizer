@@ -16,7 +16,7 @@ export function ProductSelector() {
     activeSystemColor, 
     setActiveSystemColor,
     activeFabricColor,
-    setActiveFabricColor
+    setActiveFabricColor, masks, selectedMaskId, selectMask, removeMask
   } = useVisualizerStore();
 
   const handleProductChange = (product: ProductType) => {
@@ -53,7 +53,7 @@ export function ProductSelector() {
 
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-gray-900">2. Systeemkleur</h2>
-        <p className="text-xs text-gray-500 mb-2">Kast & Zijgeleiders</p>
+        <p className="text-xs text-gray-500 mb-2">Kast, geleiders, lamellen & onderlijst</p>
         <div className="flex flex-wrap gap-3">
           {SYSTEM_COLORS.map((color) => (
             <button
@@ -88,6 +88,18 @@ export function ProductSelector() {
         </div>
       )}
 
+      {masks.length > 0 && <div className="space-y-2">
+        <h2 className="text-lg font-semibold">Selecties</h2>
+        <p className="text-xs text-gray-500">Kies een selectie om de kleur of montage te wijzigen.</p>
+        {masks.map((mask,index)=><div key={mask.id} className="flex gap-2">
+          <button type="button" onClick={()=>selectMask(mask.id)} aria-pressed={selectedMaskId===mask.id}
+            className={`flex-1 text-left border rounded p-2 text-sm ${selectedMaskId===mask.id?'bg-blue-50 border-blue-600':''}`}>
+            Kozijn {index+1} · {mask.systemColor.replace('_',' ')}{mask.productType==='ROLLUIKEN'?` · ${mask.mountingMode==='IN_DE_DAG'?'in':'op'} de dag`:''}
+          </button>
+          <button type="button" aria-label={`Verwijder kozijn ${index+1}`} onClick={()=>removeMask(mask.id)}>×</button>
+        </div>)}
+        <button type="button" onClick={()=>selectMask(null)} className="text-sm text-blue-700">Nieuwe selectie</button>
+      </div>}
       <div className="mt-auto pt-6 border-t border-gray-100">
         <p className="text-sm text-gray-600">
           <strong>Tip:</strong> Selecteer hierboven uw configuratie en klik daarna op de ramen of gevel in de foto om deze toe te passen.

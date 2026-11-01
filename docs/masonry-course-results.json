@@ -1,0 +1,668 @@
+{
+  "cases": [
+    {
+      "file": "20261005_144548.jpg",
+      "browser": true,
+      "requests": 1,
+      "overlayLines": 55,
+      "coordinates": [
+        {
+          "x": 0.5342542552038161,
+          "y": 0.4067375183105469
+        },
+        {
+          "x": 0.6912291305290547,
+          "y": 0.40771251678466797
+        },
+        {
+          "x": 0.6799499945793582,
+          "y": 0.5068250274658204
+        },
+        {
+          "x": 0.523841066782307,
+          "y": 0.5063375091552734
+        }
+      ],
+      "layersOverSelection": 23.764705882352942,
+      "status": "agreement",
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 24,
+          "intervals": 23,
+          "period": 0.039603960396039604,
+          "reason": null
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "period": null,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 8,
+          "intervals": 7,
+          "period": 0.08415841584158416,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 23,
+          "intervals": 22,
+          "period": 0.04455445544554455,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "file": "20261005_145347.jpg",
+      "browser": true,
+      "requests": 1,
+      "overlayLines": 75,
+      "coordinates": [
+        {
+          "x": 0.6374536535125759,
+          "y": 0.16991249084472657
+        },
+        {
+          "x": 0.8117912510841283,
+          "y": 0.16455001831054689
+        },
+        {
+          "x": 0.7996460320901995,
+          "y": 0.2973625183105469
+        },
+        {
+          "x": 0.6305263443191674,
+          "y": 0.29833751678466797
+        }
+      ],
+      "layersOverSelection": 19,
+      "status": "agreement",
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 18,
+          "intervals": 17,
+          "period": 0.05263157894736842,
+          "reason": null
+        },
+        {
+          "id": "left-far",
+          "joints": 18,
+          "intervals": 17,
+          "period": 0.05263157894736842,
+          "reason": null
+        },
+        {
+          "id": "right-near",
+          "joints": 19,
+          "intervals": 18,
+          "period": 0.05263157894736842,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 20,
+          "intervals": 19,
+          "period": 0.05263157894736842,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "file": "20261005_145745.jpg",
+      "browser": true,
+      "requests": 1,
+      "overlayLines": 115,
+      "coordinates": [
+        {
+          "x": 0.7304611206054688,
+          "y": 0.4405789794297048
+        },
+        {
+          "x": 0.8286065273597593,
+          "y": 0.41109593383879317
+        },
+        {
+          "x": 0.8461885295930456,
+          "y": 0.7241801607020986
+        },
+        {
+          "x": 0.7377868402199667,
+          "y": 0.7432713105343229
+        }
+      ],
+      "layersOverSelection": 28.400000000000006,
+      "status": "agreement",
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 30,
+          "intervals": 29,
+          "period": 0.03380281690140845,
+          "reason": null
+        },
+        {
+          "id": "left-far",
+          "joints": 30,
+          "intervals": 29,
+          "period": 0.03380281690140845,
+          "reason": null
+        },
+        {
+          "id": "right-near",
+          "joints": 28,
+          "intervals": 27,
+          "period": 0.036619718309859155,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 27,
+          "intervals": 26,
+          "period": 0.036619718309859155,
+          "reason": null
+        }
+      ]
+    }
+  ],
+  "tinySelection": {
+    "status": "unconfirmed",
+    "layersOverSelection": null,
+    "reasons": [
+      "Te weinig beeldpunten",
+      "Te weinig beeldpunten",
+      "Te weinig beeldpunten",
+      "Te weinig beeldpunten"
+    ]
+  },
+  "invalidRejected": true,
+  "blankAbstained": true,
+  "pageErrors": [],
+  "legacyApiCases": [
+    {
+      "file": "Test 001.png",
+      "ms": 231,
+      "status": "unconfirmed",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Te weinig beeldpunten"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Te weinig beeldpunten"
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Te weinig beeldpunten"
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Te weinig beeldpunten"
+        }
+      ]
+    },
+    {
+      "file": "Test 002.jpg",
+      "ms": 57,
+      "status": "agreement",
+      "layersOverSelection": 18.285714285714285,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 7,
+          "intervals": 4,
+          "reason": null
+        },
+        {
+          "id": "left-far",
+          "joints": 14,
+          "intervals": 10,
+          "reason": null
+        },
+        {
+          "id": "right-near",
+          "joints": 10,
+          "intervals": 8,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 9,
+          "intervals": 7,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "file": "Test 003.jpg",
+      "ms": 149,
+      "status": "unconfirmed",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        }
+      ]
+    },
+    {
+      "file": "Test 004.jpg",
+      "ms": 47,
+      "status": "agreement",
+      "layersOverSelection": 22.88888888888889,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 23,
+          "intervals": 22,
+          "reason": null
+        },
+        {
+          "id": "left-far",
+          "joints": 9,
+          "intervals": 7,
+          "reason": null
+        },
+        {
+          "id": "right-near",
+          "joints": 20,
+          "intervals": 19,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 11,
+          "intervals": 9,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "file": "Test 005.jpg",
+      "ms": 56,
+      "status": "limited",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 18,
+          "intervals": 16,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        }
+      ]
+    },
+    {
+      "file": "Test 006.jpg",
+      "ms": 18,
+      "status": "agreement",
+      "layersOverSelection": 14.857142857142858,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Strook valt buiten de foto"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Strook valt buiten de foto"
+        },
+        {
+          "id": "right-near",
+          "joints": 12,
+          "intervals": 9,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 12,
+          "intervals": 9,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "file": "Test 007.jpg",
+      "ms": 138,
+      "status": "limited",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-far",
+          "joints": 7,
+          "intervals": 4,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "file": "Test 008.jpg",
+      "ms": 41,
+      "status": "agreement",
+      "layersOverSelection": 16.857142857142858,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 17,
+          "intervals": 16,
+          "reason": null
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 13,
+          "intervals": 12,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        }
+      ]
+    },
+    {
+      "file": "Test 009.jpg",
+      "ms": 45,
+      "status": "limited",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 21,
+          "intervals": 20,
+          "reason": null
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        }
+      ]
+    },
+    {
+      "file": "Test 010.jpg",
+      "ms": 44,
+      "status": "unconfirmed",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Te weinig beeldpunten"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Te weinig beeldpunten"
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Te weinig beeldpunten"
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Te weinig beeldpunten"
+        }
+      ]
+    },
+    {
+      "file": "Test 011.jpg",
+      "ms": 124,
+      "status": "limited",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-far",
+          "joints": 11,
+          "intervals": 9,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "file": "Test 012.jpg",
+      "ms": 20,
+      "status": "unconfirmed",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        }
+      ]
+    },
+    {
+      "file": "Test 013.jpg",
+      "ms": 46,
+      "status": "agreement",
+      "layersOverSelection": 29.666666666666668,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 26,
+          "intervals": 24,
+          "reason": null
+        },
+        {
+          "id": "left-far",
+          "joints": 26,
+          "intervals": 24,
+          "reason": null
+        },
+        {
+          "id": "right-near",
+          "joints": 22,
+          "intervals": 19,
+          "reason": null
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        }
+      ]
+    },
+    {
+      "file": "Test 014.jpg",
+      "ms": 21,
+      "status": "unconfirmed",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "left-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        }
+      ]
+    },
+    {
+      "file": "Test 015.jpg",
+      "ms": 22,
+      "status": "limited",
+      "layersOverSelection": null,
+      "patches": [
+        {
+          "id": "left-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "left-far",
+          "joints": 6,
+          "intervals": 4,
+          "reason": null
+        },
+        {
+          "id": "right-near",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        },
+        {
+          "id": "right-far",
+          "joints": 0,
+          "intervals": 0,
+          "reason": "Geen duidelijk herhalend patroon"
+        }
+      ]
+    }
+  ],
+  "scope": "Built app tested locally via real browser and API; no live-host runtime claim; manual trial selections are not approved count ground truth."
+}
