@@ -12,7 +12,7 @@ type Face = { name:string; quad:Point[]; texture:[number,number,number,number]; 
 export type ComponentGeometry = {
   faces:Face[]; frameWidthBasis:number; frameHeightBasis:number;
   scaleSource:MetricHints['scaleSource']; cameraStatus:'assumed'|'unavailable'; metricStatus:'indicative';
-  dimensions:typeof COMPONENT_DIMENSIONS; notes:string[]; curtainTextureRows?:number; referenceStatus?:'shared'|'separate-plane';
+  dimensions:typeof COMPONENT_DIMENSIONS; notes:string[]; curtainTextureRows?:number; referenceStatus?:'shared'|'separate-plane'|'unscaled';
 };
 const length = (v:number[]) => Math.hypot(...v);
 const dot = (a:number[],b:number[]) => a.reduce((s,v,i)=>s+v*b[i],0);
@@ -58,7 +58,10 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
   let referenceHeight=H,referenceMode=mode,referenceStatus:ComponentGeometry['referenceStatus'];
   if(reference){
     const plane=inReferencePlane(reference.quad,quad);
-    if(plane&&(reference.hints.scaleSource!=='unknown'||!known)&&!(scaleSource==='masonry-count-60mm-assumption'&&reference.hints.scaleSource==='repetition-60mm-assumption')){
+    // An unmeasured style basis is not a calibration. Extrapolating it to a
+    // smaller frame can make a fixed 180mm box disproportionately large.
+    const unscaledSmaller=!!plane&&reference.hints.scaleSource==='unknown'&&!known&&plane.height<1;
+    if(plane&&!unscaledSmaller&&(reference.hints.scaleSource!=='unknown'||!known)&&!(scaleSource==='masonry-count-60mm-assumption'&&reference.hints.scaleSource==='repetition-60mm-assumption')){
       const base=rolluikComponentGeometry(reference.quad,reference.mountingMode,iw,ih,reference.hints);
       referenceHeight=base.frameHeightBasis;referenceMode=reference.mountingMode;
       H=referenceHeight*plane.height;W=base.frameWidthBasis*plane.width;
@@ -71,10 +74,12 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
         return {x:wall.x+front.x-back.x,y:wall.y+front.y-back.y};
       }}:null;
     }else if(!plane)referenceStatus='separate-plane';
+    else if(unscaledSmaller)referenceStatus='unscaled';
   }
   const notes=['Indicatieve preview: schaal en camerahoek zijn niet gevalideerd. Geen maatberekening.'];
   notes.push(scaleSource==='masonry-count-60mm-assumption'?'Schaal uit getelde steenlagen: testuitgangspunt 60 mm per laag inclusief voeg. Kast 180 mm hoog en diep (3 lagen); lamellen 45 mm (¾ laag).':known?'De verhouding is gebaseerd op herhaling in de gevel met een aangenomen laaghoogte van 6 cm.':'Geen bruikbare schaalreferentie gevonden; productmaten worden alleen als visuele verhouding getoond.');
   if(referenceStatus==='shared')notes.push('Kast, geleiders en lamellen gebruiken dezelfde vaste verhouding op dit gevelvlak.');
+  if(referenceStatus==='unscaled')notes.push('Geen betrouwbare gedeelde schaal gevonden; dit kleinere kozijn gebruikt een eigen indicatieve verhouding.');
   if(referenceStatus==='separate-plane')notes.push('Dit kozijn heeft een andere gevelrichting; de verhouding is afzonderlijk indicatief.');
   if(!Number.isFinite(H)||H<400||H>15000||!Number.isFinite(W)||W<250||W>20000)throw Error('De geschatte schaal is niet bruikbaar. Kies een duidelijker kozijn.');
   const rect=(x0:number,y0:number,x1:number,y1:number,z=0):XYZ[]=>[[x0,y0,z],[x1,y0,z],[x1,y1,z],[x0,y1,z]];
