@@ -1,0 +1,290 @@
+{
+  "actualBrowserAndGenerationAPI": true,
+  "externalModelCalls": false,
+  "cases": [
+    {
+      "file": "20261005_144548.jpg",
+      "layers": 23.764705882352942,
+      "frameHeightBasis": 1425.8823529411766,
+      "source": "masonry-count-60mm-assumption",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      },
+      "textureRows": 1275,
+      "guideSides": [],
+      "camera": "unavailable",
+      "unchangedOutsidePixels": 2310174
+    },
+    {
+      "file": "20261005_145347.jpg",
+      "layers": 19,
+      "frameHeightBasis": 1140,
+      "source": "masonry-count-60mm-assumption",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      },
+      "textureRows": 1011,
+      "guideSides": [
+        {
+          "name": "left-guide-side-1",
+          "quad": [
+            {
+              "x": 734.9840624999999,
+              "y": 347.98078125000006
+            },
+            {
+              "x": 726.996875,
+              "y": 610.9952343750001
+            },
+            {
+              "x": 726.0684633661463,
+              "y": 610.4827549765361
+            },
+            {
+              "x": 734.0568606261231,
+              "y": 346.5395988736725
+            }
+          ]
+        },
+        {
+          "name": "left-guide-side-2",
+          "quad": [
+            {
+              "x": 726.996875,
+              "y": 610.9952343750001
+            },
+            {
+              "x": 716.2508163769616,
+              "y": 611.1052766646847
+            },
+            {
+              "x": 715.2878560925324,
+              "y": 610.5941026399257
+            },
+            {
+              "x": 726.0684633661463,
+              "y": 610.4827549765361
+            }
+          ]
+        },
+        {
+          "name": "right-guide-side-1",
+          "quad": [
+            {
+              "x": 947.8710282960722,
+              "y": 336.3496022076979
+            },
+            {
+              "x": 933.5006898201575,
+              "y": 608.8805843988034
+            },
+            {
+              "x": 933.2619025236646,
+              "y": 608.3427544427695
+            },
+            {
+              "x": 947.6769090873884,
+              "y": 334.8145499468742
+            }
+          ]
+        },
+        {
+          "name": "right-guide-side-2",
+          "quad": [
+            {
+              "x": 933.5006898201575,
+              "y": 608.8805843988034
+            },
+            {
+              "x": 921.9918749999999,
+              "y": 608.9984375000001
+            },
+            {
+              "x": 921.7133673539695,
+              "y": 608.4620336609139
+            },
+            {
+              "x": 933.2619025236646,
+              "y": 608.3427544427695
+            }
+          ]
+        }
+      ],
+      "camera": "assumed",
+      "unchangedOutsidePixels": 2279886
+    },
+    {
+      "file": "20261005_145745.jpg",
+      "layers": 28.400000000000006,
+      "frameHeightBasis": 1704.0000000000002,
+      "source": "masonry-count-60mm-assumption",
+      "dimensions": {
+        "cassetteHeight": 180,
+        "cassetteDepth": 180,
+        "guideWidth": 50,
+        "guideDepth": 25,
+        "bottomAllowance": 45,
+        "slatHeight": 45
+      },
+      "textureRows": 1531,
+      "guideSides": [
+        {
+          "name": "left-guide-side-1",
+          "quad": [
+            {
+              "x": 1495.984375,
+              "y": 507.9875632824496
+            },
+            {
+              "x": 1510.9874487704917,
+              "y": 856.9918210460744
+            },
+            {
+              "x": 1509.4726417696152,
+              "y": 854.7781285198473
+            },
+            {
+              "x": 1494.5731374372663,
+              "y": 505.25930034527283
+            }
+          ]
+        },
+        {
+          "name": "left-guide-side-2",
+          "quad": [
+            {
+              "x": 1510.9874487704917,
+              "y": 856.9918210460744
+            },
+            {
+              "x": 1499.0548696226688,
+              "y": 858.1749435479782
+            },
+            {
+              "x": 1497.5170776626185,
+              "y": 855.9691569738778
+            },
+            {
+              "x": 1509.4726417696152,
+              "y": 854.7781285198473
+            }
+          ]
+        },
+        {
+          "name": "right-guide-side-1",
+          "quad": [
+            {
+              "x": 1708.77439085148,
+              "y": 471.99995648795704
+            },
+            {
+              "x": 1746.0680402429293,
+              "y": 833.6834369921011
+            },
+            {
+              "x": 1745.0319239309665,
+              "y": 831.3114141804566
+            },
+            {
+              "x": 1707.7547524161168,
+              "y": 469.07915848972607
+            }
+          ]
+        },
+        {
+          "name": "right-guide-side-2",
+          "quad": [
+            {
+              "x": 1746.0680402429293,
+              "y": 833.6834369921011
+            },
+            {
+              "x": 1732.9941086065573,
+              "y": 834.9797252895196
+            },
+            {
+              "x": 1731.9300768283092,
+              "y": 832.6166367998133
+            },
+            {
+              "x": 1745.0319239309665,
+              "y": 831.3114141804566
+            }
+          ]
+        }
+      ],
+      "camera": "assumed",
+      "unchangedOutsidePixels": 2236352
+    }
+  ],
+  "colours": [
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9005",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 1011
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_7016",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 1011
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9010",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 1011
+    },
+    {
+      "mode": "OP_DE_DAG",
+      "colour": "RAL_9001",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 1011
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9005",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 845
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_7016",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 845
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9010",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 845
+    },
+    {
+      "mode": "IN_DE_DAG",
+      "colour": "RAL_9001",
+      "source": "masonry-count-60mm-assumption",
+      "frameHeight": 1140,
+      "textureRows": 845
+    }
+  ],
+  "blankScaleUnknown": true,
+  "pageErrors": []
+}

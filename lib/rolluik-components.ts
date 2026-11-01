@@ -6,7 +6,7 @@ import type { MountingMode } from '../types/visualizer';
 
 // Product-owner specification, 20 October 2026. Approved material retained;
 // its 45mm visual allowance is not an approved manufacturing specification.
-export const COMPONENT_DIMENSIONS = { cassetteHeight:180, cassetteDepth:180, guideWidth:50, bottomAllowance:45, slatHeight:SLAT_HEIGHT_MM } as const;
+export const COMPONENT_DIMENSIONS = { cassetteHeight:180, cassetteDepth:180, guideWidth:50, guideDepth:25, bottomAllowance:45, slatHeight:SLAT_HEIGHT_MM } as const;
 type XYZ = [number,number,number];
 type Face = { name:string; quad:Point[]; texture:[number,number,number,number]; shade?:number };
 export type ComponentGeometry = {
@@ -79,7 +79,8 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
   if(!Number.isFinite(H)||H<400||H>15000||!Number.isFinite(W)||W<250||W>20000)throw Error('De geschatte schaal is niet bruikbaar. Kies een duidelijker kozijn.');
   const rect=(x0:number,y0:number,x1:number,y1:number,z=0):XYZ[]=>[[x0,y0,z],[x1,y0,z],[x1,y1,z],[x0,y1,z]];
   const planar=(p:XYZ)=>projectHomography(h,{x:p[0]/W,y:p[1]/H});
-  // No extra depth is inferred for guides, curtain or the actual recess.
+  // OP_DE_DAG guides have the approved 25mm depth. No extra depth is
+  // inferred for the curtain, bottom rail or the actual recess.
   const make=(depth:boolean)=>{
     const faces:Face[]=[],P=depth&&pose?pose.project:planar;
     const add=(name:string,points:XYZ[],texture:Face['texture'],shade?:number)=>faces.push({name,quad:points.map(P),texture,...(shade===undefined?{}:{shade})});
@@ -87,8 +88,21 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
     const x0=inside?g:0,x1=inside?W-g:W,y0=inside?box:0;
     add('curtain',rect(x0,y0,x1,H-b),[76,150,1111,885]);
     add('bottom',rect(x0,H-b,x1,H),[76,1035,1111,54]);
-    add('left-guide',rect(inside?0:-g,y0,inside?g:0,H),[24,150,52,940]);
-    add('right-guide',rect(inside?W-g:W,y0,inside?W:W+g,H),[1187,150,52,940]);
+    const guide=(name:string,left:number,right:number,texture:Face['texture'])=>{
+      const back=rect(left,y0,right,H),front=back.map(p=>[p[0],p[1],COMPONENT_DIMENSIONS.guideDepth] as XYZ);
+      if(depth&&!inside){
+        // Outward extrusion from the wall. Positive projected winding selects
+        // only camera-facing sides; hidden prism faces must not paint the curtain.
+        for(const [i,j,tone] of [[0,1,1.08],[1,2,.78],[2,3,.68],[3,0,.86]]){
+          const points=[back[i],back[j],front[j],front[i]],q=points.map(P);
+          const signedArea=q.reduce((sum,p,k)=>sum+p.x*q[(k+1)%4].y-p.y*q[(k+1)%4].x,0)/2;
+          if(signedArea>.1)add(`${name}-side-${i}`,points,[texture[0]+Math.floor((texture[2]-16)/2),texture[1],16,texture[3]],tone);
+        }
+      }
+      add(name,depth&&!inside?front:back,texture);
+    };
+    guide('left-guide',inside?0:-g,inside?g:0,[24,150,52,940]);
+    guide('right-guide',inside?W-g:W,inside?W:W+g,[1187,150,52,940]);
     const back=rect(inside?0:-g,inside?0:-box,inside?W:W+g,inside?box:0);
     const front=back.map(p=>[p[0],p[1],inside?0:COMPONENT_DIMENSIONS.cassetteDepth] as XYZ);
     if(depth&&!inside){
@@ -106,7 +120,7 @@ export function rolluikComponentGeometry(quad:Point[],mode:MountingMode,iw:numbe
     faces=make(Boolean(pose)&&mode==='OP_DE_DAG');
     if(faces.some(f=>f.quad.some(p=>Math.abs(p.x)>iw*4||Math.abs(p.y)>ih*4)))throw Error('Onveilige projectie.');
   }catch{pose=null;W=H*screenW/screenH;faces=make(false);}
-  if(!pose&&mode==='OP_DE_DAG')notes.push('De diepte van de kast kan bij deze foto niet betrouwbaar worden geprojecteerd en is vlak weergegeven.');
+  if(mode==='OP_DE_DAG')notes.push(pose?'Geleiders steken 25 mm uit vanaf het metselwerk; de zijkanten volgen het cameraperspectief.':'De diepte van de kast en geleiders kan bij deze foto niet betrouwbaar worden geprojecteerd en is vlak weergegeven.');
   if(mode==='IN_DE_DAG')notes.push('De werkelijke diepte van de negge is niet uit de foto vastgesteld.');
   const bodyHeight=H-COMPONENT_DIMENSIONS.bottomAllowance-(mode==='IN_DE_DAG'?COMPONENT_DIMENSIONS.cassetteHeight:0);
   const referenceBody=referenceHeight-COMPONENT_DIMENSIONS.bottomAllowance-(referenceMode==='IN_DE_DAG'?COMPONENT_DIMENSIONS.cassetteHeight:0);
